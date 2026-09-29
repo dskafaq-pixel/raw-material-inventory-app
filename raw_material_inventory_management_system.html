@@ -1044,7 +1044,7 @@
                             <div class="p-3 bg-sky-50 dark:bg-slate-700/50 rounded-lg space-y-3 border border-sky-200 dark:border-slate-600">
                                 <div>
                                     <div class="font-semibold text-slate-700 dark:text-slate-200">Supabase Cloud Backup</div>
-                                    <p class="text-[11px] text-slate-500">Connect with your project URL and public anon/publishable key. Backups are private to your signed-in account.</p>
+                                    <p class="text-[11px] text-slate-500">Sign in with the same account on every device. Inventory changes sync automatically; the latest cloud data loads on a new device. Your backups stay private to your account.</p>
                                 </div>
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                     <input type="url" id="supabase-project-url" placeholder="https://your-project.supabase.co" class="w-full p-2 bg-white dark:bg-slate-800 border rounded-lg text-xs">
@@ -1662,6 +1662,13 @@
         let supabaseUser = null;
         let supabaseSyncTimer = null;
         let supabaseInitialBackupUserId = null;
+        let supabaseLiveChannel = null;
+        let supabaseLivePollTimer = null;
+        let supabaseLatestBackupId = null;
+        let supabaseLatestBackupAt = 0;
+        let supabaseApplyingRemote = false;
+        let supabaseLocalDirty = false;
+        let supabaseLocalChangeVersion = 0;
 
         // Global Active Filters
         let activeTab = 'dashboard';
@@ -1740,7 +1747,7 @@
                 localStorage.setItem('erp_dbWorkingLog', JSON.stringify(dbWorkingLog));
                 localStorage.setItem('erp_dbTrashBin', JSON.stringify(dbTrashBin));
                 maybeRunScheduledBackup();
-                if(supabaseUser)queueSupabaseBackup();
+                if(supabaseUser&&!supabaseApplyingRemote){supabaseLocalDirty=true;supabaseLocalChangeVersion++;queueSupabaseBackup();}
             } catch (e) {
                 console.error("Storage save failed", e);
             }
@@ -1767,9 +1774,9 @@
             try{
                 if(supabaseClient&&supabaseClient.authSubscription)supabaseClient.authSubscription.unsubscribe();
                 supabaseClient=window.supabase.createClient(url,key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
-                const listener=supabaseClient.auth.onAuthStateChange((_event,session)=>{supabaseUser=session?.user||null;setSupabaseStatus(supabaseUser?`Signed in as ${supabaseUser.email}. Checking cloud backup…`:'Connected to Supabase. Sign in to back up data.');if(supabaseUser)setTimeout(updateCloudBackupStatus,0);});
+                const listener=supabaseClient.auth.onAuthStateChange((_event,session)=>{supabaseUser=session?.user||null;setSupabaseStatus(supabaseUser?`Signed in as ${supabaseUser.email}. Checking shared inventory…`:'Connected to Supabase. Sign in to sync data across devices.');if(supabaseUser)setTimeout(updateCloudBackupStatus,0);else stopCloudLiveSync();});
                 supabaseClient.authSubscription=listener.data.subscription;
-                supabaseClient.auth.getSession().then(({data,error})=>{if(error)throw error;supabaseUser=data.session?.user||null;setSupabaseStatus(supabaseUser?`Signed in as ${supabaseUser.email}. Checking cloud backup…`:'Connected to Supabase. Sign in to back up data.');if(supabaseUser)updateCloudBackupStatus();}).catch(e=>setSupabaseStatus('Could not read the Supabase session: '+e.message,true));
+                supabaseClient.auth.getSession().then(({data,error})=>{if(error)throw error;supabaseUser=data.session?.user||null;setSupabaseStatus(supabaseUser?`Signed in as ${supabaseUser.email}. Checking shared inventory…`:'Connected to Supabase. Sign in to sync data across devices.');if(supabaseUser)updateCloudBackupStatus();else stopCloudLiveSync();}).catch(e=>setSupabaseStatus('Could not read the Supabase session: '+e.message,true));
             }catch(e){supabaseClient=null;setSupabaseStatus('Supabase connection failed: '+e.message,true);}
         }
         function saveSupabaseSettings(){
@@ -1779,25 +1786,71 @@
         }
         async function supabaseSignUp(){if(!supabaseClient)return setSupabaseStatus('Save your Supabase project settings first.',true);const email=document.getElementById('supabase-auth-email').value.trim(),password=document.getElementById('supabase-auth-password').value;if(!email||!password)return setSupabaseStatus('Enter your email and password.',true);const {data,error}=await supabaseClient.auth.signUp({email,password});if(error)return setSupabaseStatus('Account creation failed: '+error.message,true);document.getElementById('supabase-auth-password').value='';if(data.session){supabaseUser=data.user;setSupabaseStatus('Account created and signed in.');await createCloudBackup();}else setSupabaseStatus('Account created. Check your email to confirm, then sign in.');}
         async function supabaseSignIn(){if(!supabaseClient)return setSupabaseStatus('Save your Supabase project settings first.',true);const email=document.getElementById('supabase-auth-email').value.trim(),password=document.getElementById('supabase-auth-password').value;if(!email||!password)return setSupabaseStatus('Enter your email and password.',true);const {data,error}=await supabaseClient.auth.signInWithPassword({email,password});if(error)return setSupabaseStatus('Sign-in failed: '+error.message,true);supabaseUser=data.user;document.getElementById('supabase-auth-password').value='';await updateCloudBackupStatus();}
-        async function supabaseSignOut(){if(!supabaseClient)return;const {error}=await supabaseClient.auth.signOut();if(error)setSupabaseStatus('Sign-out failed: '+error.message,true);else{supabaseUser=null;document.getElementById('supabase-auth-password').value='';setSupabaseStatus('Signed out. Local inventory data is unchanged.');}}
+        async function supabaseSignOut(){if(!supabaseClient)return;const {error}=await supabaseClient.auth.signOut();if(error)setSupabaseStatus('Sign-out failed: '+error.message,true);else{supabaseUser=null;stopCloudLiveSync();document.getElementById('supabase-auth-password').value='';setSupabaseStatus('Signed out. Local inventory data is unchanged.');}}
         function queueSupabaseBackup(){if(!supabaseClient||!supabaseUser)return;if(supabaseSyncTimer)clearTimeout(supabaseSyncTimer);supabaseSyncTimer=setTimeout(()=>uploadSupabaseBackup('automatic'),2500);}
         async function uploadSupabaseBackup(source){
             if(!supabaseClient||!supabaseUser)return setSupabaseStatus('Connect and sign in before creating a cloud backup.',true);
-            setSupabaseStatus('Saving a private cloud backup…');
+            const changeVersion=supabaseLocalChangeVersion;setSupabaseStatus('Syncing inventory changes…');
             try{
-                const {error}=await supabaseClient.from('inventory_backups').insert({owner_id:supabaseUser.id,source,backup_data:makeBackupSnapshot()});if(error)throw error;
+                const {data:saved,error}=await supabaseClient.from('inventory_backups').insert({owner_id:supabaseUser.id,source,backup_data:makeBackupSnapshot()}).select('id,created_at').single();if(error)throw error;
+                if(saved){supabaseLatestBackupId=saved.id;supabaseLatestBackupAt=Date.parse(saved.created_at)||Date.now();localStorage.setItem('erp_lastCloudBackupId',saved.id);}
                 const {data:rows,error:listError}=await supabaseClient.from('inventory_backups').select('id').eq('owner_id',supabaseUser.id).order('created_at',{ascending:false}).limit(100);if(listError)throw listError;
                 const old=(rows||[]).slice(20).map(x=>x.id);if(old.length){const {error:deleteError}=await supabaseClient.from('inventory_backups').delete().eq('owner_id',supabaseUser.id).in('id',old);if(deleteError)throw deleteError;}
                 if(source==='initial')localStorage.removeItem('erp_cloudRestorePending');
-                setSupabaseStatus(`Cloud backup saved at ${new Date().toLocaleString()}. Keeping the newest 20 backups.`);
+                if(changeVersion===supabaseLocalChangeVersion)supabaseLocalDirty=false;
+                setSupabaseStatus(`All signed-in devices are syncing. Latest save: ${new Date(supabaseLatestBackupAt||Date.now()).toLocaleTimeString()}.`);
             }catch(e){console.error('Supabase backup failed',e);setSupabaseStatus('Cloud backup failed: '+e.message,true);}
         }
         function createCloudBackup(){return uploadSupabaseBackup('manual');}
         function getHostedInventoryAppUrl(){return 'https://dskafaq-pixel.github.io/raw-material-inventory-app/raw_material_inventory_management_system.html';}
         function refreshHostedInventoryAppLink(){const box=document.getElementById('supabase-app-link-container'),link=document.getElementById('supabase-app-link');if(!box||!link)return;const url=getHostedInventoryAppUrl();link.href=url;link.innerText=url;box.classList.remove('hidden');}
         function openHostedInventoryApp(){window.open(getHostedInventoryAppUrl(),'_blank','noopener');}
-        async function updateCloudBackupStatus(){if(!supabaseClient||!supabaseUser)return;const userId=supabaseUser.id;const {data,error}=await supabaseClient.from('inventory_backups').select('backup_data,created_at').eq('owner_id',userId).order('created_at',{ascending:false}).limit(1);if(error){setSupabaseStatus('Cloud backup table is not ready: '+error.message,true);return;}if(!data?.length){setSupabaseStatus(`Signed in as ${supabaseUser.email}. Creating your first cloud backup…`);if(supabaseInitialBackupUserId!==userId){supabaseInitialBackupUserId=userId;await uploadSupabaseBackup('initial');}return;}if(localStorage.getItem('erp_cloudRestorePending')==='1'){if(!Array.isArray(data[0].backup_data?.dbItems)){setSupabaseStatus('The cloud backup is invalid; your local data was left unchanged.',true);return;}localStorage.removeItem('erp_cloudRestorePending');applyBackupData(data[0].backup_data);setSupabaseStatus('Latest cloud inventory restored on this device. Reloading…');location.reload();return;}setSupabaseStatus(`Signed in as ${supabaseUser.email}. Latest cloud backup: ${new Date(data[0].created_at).toLocaleString()}.`);}
-        async function restoreLatestCloudBackup(){if(!supabaseClient||!supabaseUser)return setSupabaseStatus('Connect and sign in before restoring a cloud backup.',true);if(!confirm('Restore the latest Supabase backup? This replaces the current inventory data.'))return;try{setSupabaseStatus('Loading your latest cloud backup…');const {data,error}=await supabaseClient.from('inventory_backups').select('backup_data,created_at').eq('owner_id',supabaseUser.id).order('created_at',{ascending:false}).limit(1).maybeSingle();if(error)throw error;if(!data)throw Error('No cloud backup is available for this account.');if(!Array.isArray(data.backup_data?.dbItems))throw Error('The saved cloud backup is invalid.');applyBackupData(data.backup_data);location.reload();}catch(e){setSupabaseStatus('Cloud restore failed: '+e.message,true);}}
+        async function updateCloudBackupStatus(){
+            if(!supabaseClient||!supabaseUser)return;
+            const userId=supabaseUser.id;
+            const {data,error}=await supabaseClient.from('inventory_backups').select('id,backup_data,created_at').eq('owner_id',userId).order('created_at',{ascending:false}).limit(1).maybeSingle();
+            if(error){setSupabaseStatus('Cloud backup table is not ready: '+error.message,true);return;}
+            if(!data){setSupabaseStatus(`Signed in as ${supabaseUser.email}. Creating the shared inventory…`);if(supabaseInitialBackupUserId!==userId){supabaseInitialBackupUserId=userId;await uploadSupabaseBackup('initial');}startCloudLiveSync();return;}
+            supabaseLatestBackupId=data.id;supabaseLatestBackupAt=Date.parse(data.created_at)||0;
+            if(localStorage.getItem('erp_cloudRestorePending')==='1'){
+                if(!Array.isArray(data.backup_data?.dbItems)){setSupabaseStatus('The cloud backup is invalid; your local data was left unchanged.',true);return;}
+                supabaseApplyingRemote=true;
+                try{applyBackupData(data.backup_data);localStorage.setItem('erp_lastCloudBackupId',data.id);localStorage.removeItem('erp_cloudRestorePending');}
+                finally{supabaseApplyingRemote=false;}
+                setSupabaseStatus('Shared inventory loaded on this device.');location.reload();return;
+            }
+            localStorage.setItem('erp_lastCloudBackupId',data.id);
+            setSupabaseStatus(`Signed in as ${supabaseUser.email}. Live sync is on; cloud changes appear automatically.`);
+            startCloudLiveSync();
+        }
+        function startCloudLiveSync(){
+            if(!supabaseClient||!supabaseUser)return;
+            if(supabaseLivePollTimer)clearInterval(supabaseLivePollTimer);
+            supabaseLivePollTimer=setInterval(pollLatestCloudBackup,4000);
+            if(supabaseLiveChannel){supabaseClient.removeChannel(supabaseLiveChannel);supabaseLiveChannel=null;}
+            const userId=supabaseUser.id;
+            supabaseLiveChannel=supabaseClient.channel('inventory-live-'+userId).on('postgres_changes',{event:'INSERT',schema:'public',table:'inventory_backups',filter:'owner_id=eq.'+userId},payload=>receiveCloudBackup(payload.new)).subscribe(status=>{
+                if(status==='SUBSCRIBED')setSupabaseStatus('Live sync is on. Changes are shared with your signed-in devices.');
+                else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT')setSupabaseStatus('Live connection is reconnecting; automatic cloud checks are still running.',true);
+            });
+        }
+        function stopCloudLiveSync(){if(supabaseLivePollTimer){clearInterval(supabaseLivePollTimer);supabaseLivePollTimer=null;}if(supabaseClient&&supabaseLiveChannel)supabaseClient.removeChannel(supabaseLiveChannel);supabaseLiveChannel=null;supabaseLatestBackupId=null;supabaseLatestBackupAt=0;}
+        async function pollLatestCloudBackup(){
+            if(!supabaseClient||!supabaseUser)return;
+            try{const {data,error}=await supabaseClient.from('inventory_backups').select('id,created_at').eq('owner_id',supabaseUser.id).order('created_at',{ascending:false}).limit(1).maybeSingle();if(error)throw error;if(data&&data.id!==supabaseLatestBackupId){const {data:row,error:rowError}=await supabaseClient.from('inventory_backups').select('id,backup_data,created_at').eq('owner_id',supabaseUser.id).eq('id',data.id).maybeSingle();if(rowError)throw rowError;if(row)receiveCloudBackup(row);}}
+            catch(e){console.warn('Live inventory check failed:',e);}
+        }
+        function receiveCloudBackup(row){
+            if(!row||!row.id||row.id===supabaseLatestBackupId||!Array.isArray(row.backup_data?.dbItems))return;
+            const rowTime=Date.parse(row.created_at)||0;if(supabaseLatestBackupAt&&rowTime<supabaseLatestBackupAt)return;
+            if(supabaseLocalDirty||supabaseSyncTimer){setSupabaseStatus('A cloud update arrived while this device has edits. Saving your changes first…');return;}
+            if(document.querySelector('[id^="modal-"]:not(.hidden)')){setSupabaseStatus('A cloud update is waiting. Finish the open form to apply it.');return;}
+            supabaseLatestBackupId=row.id;supabaseLatestBackupAt=rowTime;supabaseApplyingRemote=true;
+            try{applyBackupData(row.backup_data);localStorage.setItem('erp_lastCloudBackupId',row.id);setSupabaseStatus(`Inventory updated from another device at ${new Date(row.created_at).toLocaleTimeString()}.`);}
+            finally{supabaseApplyingRemote=false;}
+            setTimeout(()=>location.reload(),150);
+        }
+        async function restoreLatestCloudBackup(){if(!supabaseClient||!supabaseUser)return setSupabaseStatus('Connect and sign in before restoring a cloud backup.',true);if(!confirm('Restore the latest Supabase backup? This replaces the current inventory data.'))return;try{setSupabaseStatus('Loading your latest cloud backup…');const {data,error}=await supabaseClient.from('inventory_backups').select('id,backup_data,created_at').eq('owner_id',supabaseUser.id).order('created_at',{ascending:false}).limit(1).maybeSingle();if(error)throw error;if(!data)throw Error('No cloud backup is available for this account.');if(!Array.isArray(data.backup_data?.dbItems))throw Error('The saved cloud backup is invalid.');supabaseApplyingRemote=true;try{applyBackupData(data.backup_data);supabaseLatestBackupId=data.id;supabaseLatestBackupAt=Date.parse(data.created_at)||Date.now();localStorage.setItem('erp_lastCloudBackupId',data.id);}finally{supabaseApplyingRemote=false;}location.reload();}catch(e){setSupabaseStatus('Cloud restore failed: '+e.message,true);}}
         function restoreLastLocalSnapshot(){const raw=localStorage.getItem('erp_autoBackupSnapshot');if(!raw)return showToast('No automatic local snapshot is available yet.','error');if(!confirm('Restore the last automatic snapshot? This replaces the current inventory data.'))return;try{const d=JSON.parse(raw);if(!Array.isArray(d.dbItems))throw Error('Snapshot does not contain item data');applyBackupData(d);location.reload();}catch(e){showToast('The local snapshot is invalid: '+e.message,'error');}}
         function applyBackupData(d){if(Array.isArray(d.dbItems))dbItems=d.dbItems;if(Array.isArray(d.dbCategories))dbCategories=d.dbCategories;if(Array.isArray(d.dbUoms))dbUoms=d.dbUoms;if(Array.isArray(d.dbVendors))dbVendors=d.dbVendors;if(Array.isArray(d.dbVouchersGrn))dbVouchersGrn=d.dbVouchersGrn;if(Array.isArray(d.dbVouchersIssue))dbVouchersIssue=d.dbVouchersIssue;if(Array.isArray(d.dbVouchersAdj))dbVouchersAdj=d.dbVouchersAdj;if(Array.isArray(d.dbWorkingLog))dbWorkingLog=d.dbWorkingLog;if(Array.isArray(d.dbTrashBin))dbTrashBin=d.dbTrashBin;if(d.companyConfig)companyConfig={...companyConfig,...d.companyConfig};saveToLocalStorage();}
 
