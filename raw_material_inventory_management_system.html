@@ -1044,7 +1044,7 @@
                             <div class="p-3 bg-sky-50 dark:bg-slate-700/50 rounded-lg space-y-3 border border-sky-200 dark:border-slate-600">
                                 <div>
                                     <div class="font-semibold text-slate-700 dark:text-slate-200">Supabase Cloud Backup</div>
-                                    <p class="text-[11px] text-slate-500">Sign in with the same account on every device. Inventory changes sync automatically; the latest cloud data loads on a new device. Your backups stay private to your account.</p>
+                                    <p class="text-[11px] text-slate-500">Sign in with the same account on every device. Inventory changes sync automatically; the latest cloud data loads on a new device. Your backups stay private to your account. Avoid editing on two devices at once; the latest saved copy wins.</p>
                                 </div>
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                     <input type="url" id="supabase-project-url" placeholder="https://your-project.supabase.co" class="w-full p-2 bg-white dark:bg-slate-800 border rounded-lg text-xs">
@@ -1781,13 +1781,13 @@
         }
         function saveSupabaseSettings(){
             const url=document.getElementById('supabase-project-url').value.trim().replace(/\/$/,''),key=document.getElementById('supabase-public-key').value.trim();
-            try{if(!/^https:\/\/[\w.-]+\.supabase\.co$/.test(url))throw Error('Enter the project URL shown in Supabase.');if(!key)throw Error('Enter the public anon/publishable key.');if(supabaseSyncTimer)clearTimeout(supabaseSyncTimer);supabaseClient=null;supabaseUser=null;companyConfig.supabaseUrl=url;companyConfig.supabaseAnonKey=key;saveToLocalStorage();initializeSupabaseBackup();showToast('Supabase settings saved.');}
+            try{if(!/^https:\/\/[\w.-]+\.supabase\.co$/.test(url))throw Error('Enter the project URL shown in Supabase.');if(!key)throw Error('Enter the public anon/publishable key.');if(supabaseSyncTimer){clearTimeout(supabaseSyncTimer);supabaseSyncTimer=null;}stopCloudLiveSync();supabaseClient=null;supabaseUser=null;companyConfig.supabaseUrl=url;companyConfig.supabaseAnonKey=key;saveToLocalStorage();initializeSupabaseBackup();showToast('Supabase settings saved.');}
             catch(e){setSupabaseStatus(e.message,true);}
         }
         async function supabaseSignUp(){if(!supabaseClient)return setSupabaseStatus('Save your Supabase project settings first.',true);const email=document.getElementById('supabase-auth-email').value.trim(),password=document.getElementById('supabase-auth-password').value;if(!email||!password)return setSupabaseStatus('Enter your email and password.',true);const {data,error}=await supabaseClient.auth.signUp({email,password});if(error)return setSupabaseStatus('Account creation failed: '+error.message,true);document.getElementById('supabase-auth-password').value='';if(data.session){supabaseUser=data.user;setSupabaseStatus('Account created and signed in.');await createCloudBackup();}else setSupabaseStatus('Account created. Check your email to confirm, then sign in.');}
         async function supabaseSignIn(){if(!supabaseClient)return setSupabaseStatus('Save your Supabase project settings first.',true);const email=document.getElementById('supabase-auth-email').value.trim(),password=document.getElementById('supabase-auth-password').value;if(!email||!password)return setSupabaseStatus('Enter your email and password.',true);const {data,error}=await supabaseClient.auth.signInWithPassword({email,password});if(error)return setSupabaseStatus('Sign-in failed: '+error.message,true);supabaseUser=data.user;document.getElementById('supabase-auth-password').value='';await updateCloudBackupStatus();}
         async function supabaseSignOut(){if(!supabaseClient)return;const {error}=await supabaseClient.auth.signOut();if(error)setSupabaseStatus('Sign-out failed: '+error.message,true);else{supabaseUser=null;stopCloudLiveSync();document.getElementById('supabase-auth-password').value='';setSupabaseStatus('Signed out. Local inventory data is unchanged.');}}
-        function queueSupabaseBackup(){if(!supabaseClient||!supabaseUser)return;if(supabaseSyncTimer)clearTimeout(supabaseSyncTimer);supabaseSyncTimer=setTimeout(()=>uploadSupabaseBackup('automatic'),2500);}
+        function queueSupabaseBackup(){if(!supabaseClient||!supabaseUser)return;if(supabaseSyncTimer)clearTimeout(supabaseSyncTimer);supabaseSyncTimer=setTimeout(()=>{supabaseSyncTimer=null;uploadSupabaseBackup('automatic');},2500);}
         async function uploadSupabaseBackup(source){
             if(!supabaseClient||!supabaseUser)return setSupabaseStatus('Connect and sign in before creating a cloud backup.',true);
             const changeVersion=supabaseLocalChangeVersion;setSupabaseStatus('Syncing inventory changes…');
@@ -1810,7 +1810,7 @@
             const userId=supabaseUser.id;
             const {data,error}=await supabaseClient.from('inventory_backups').select('id,backup_data,created_at').eq('owner_id',userId).order('created_at',{ascending:false}).limit(1).maybeSingle();
             if(error){setSupabaseStatus('Cloud backup table is not ready: '+error.message,true);return;}
-            if(!data){setSupabaseStatus(`Signed in as ${supabaseUser.email}. Creating the shared inventory…`);if(supabaseInitialBackupUserId!==userId){supabaseInitialBackupUserId=userId;await uploadSupabaseBackup('initial');}startCloudLiveSync();return;}
+            if(!data){setSupabaseStatus(`Signed in as ${supabaseUser.email}. Creating the shared inventory…`);if(supabaseInitialBackupUserId!==userId){supabaseInitialBackupUserId=userId;await uploadSupabaseBackup('initial');}if(supabaseLatestBackupId)startCloudLiveSync();return;}
             supabaseLatestBackupId=data.id;supabaseLatestBackupAt=Date.parse(data.created_at)||0;
             if(localStorage.getItem('erp_cloudRestorePending')==='1'){
                 if(!Array.isArray(data.backup_data?.dbItems)){setSupabaseStatus('The cloud backup is invalid; your local data was left unchanged.',true);return;}
@@ -1819,10 +1819,13 @@
                 finally{supabaseApplyingRemote=false;}
                 setSupabaseStatus('Shared inventory loaded on this device.');location.reload();return;
             }
+            const localSnapshot=stableBackupJson(makeBackupSnapshot()),cloudSnapshot=stableBackupJson(data.backup_data);
             localStorage.setItem('erp_lastCloudBackupId',data.id);
-            setSupabaseStatus(`Signed in as ${supabaseUser.email}. Live sync is on; cloud changes appear automatically.`);
+            if(localSnapshot!==cloudSnapshot)setSupabaseStatus('This device has inventory different from the cloud copy. Choose Back Up Now to share this copy, or Restore Latest Cloud Backup to load the shared copy.',true);
+            else setSupabaseStatus(`Signed in as ${supabaseUser.email}. Live sync is on; cloud changes appear automatically.`);
             startCloudLiveSync();
         }
+        function stableBackupJson(value){if(Array.isArray(value))return '['+value.map(stableBackupJson).join(',')+']';if(value&&typeof value==='object')return '{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+stableBackupJson(value[k])).join(',')+'}';return JSON.stringify(value);}
         function startCloudLiveSync(){
             if(!supabaseClient||!supabaseUser)return;
             if(supabaseLivePollTimer)clearInterval(supabaseLivePollTimer);
