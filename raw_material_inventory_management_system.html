@@ -1656,6 +1656,8 @@
         let supabaseReconnectAttempt = 0;
         let supabaseReadyUserId = null;
         let supabaseAccessGranted = false;
+        let editingIssueVoucherId = '';
+        let editingAdjVoucherId = '';
         let supabaseClientId = sessionStorage.getItem("erp_supabaseClientId") || crypto.randomUUID();
         sessionStorage.setItem("erp_supabaseClientId", supabaseClientId);
 
@@ -2527,7 +2529,10 @@
                         <td class="p-3 text-right font-mono font-bold text-emerald-600">${companyConfig.currency}${v.grandTotal.toFixed(2)}</td>
                         <td class="p-3 text-center"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${statusBadge}">${v.status}</span></td>
                         <td class="p-3 text-center space-x-2">
+                            <button onclick="viewVoucherDetail('GRN', '${v.id}')" class="text-sky-700 hover:text-sky-900" title="View voucher" aria-label="View ${v.no}"><i class="fa-solid fa-eye"></i></button>
+                            <button onclick="editVoucher('GRN', '${v.id}')" class="text-blue-600 hover:text-blue-800" title="Edit voucher" aria-label="Edit ${v.no}"><i class="fa-solid fa-pen"></i></button>
                             <button onclick="printVoucher('GRN', '${v.id}')" class="text-slate-600 hover:text-black" title="Print A4"><i class="fa-solid fa-print"></i></button>
+                            <button onclick="smartDeleteVoucher('GRN', '${v.id}')" class="text-rose-600 hover:text-rose-800" title="Smart Delete: move to Trash" aria-label="Smart Delete ${v.no}"><i class="fa-solid fa-trash-can"></i></button>
                             ${v.status === 'Posted' ? `<button onclick="reverseVoucher('GRN', '${v.id}')" class="text-rose-600 hover:text-rose-800" title="Reverse Stock"><i class="fa-solid fa-rotate-left"></i></button>` : ''}
                         </td>
                     </tr>
@@ -2537,6 +2542,7 @@
 
         function openGrnModal() {
             document.getElementById('form-grn').reset();
+            document.getElementById('grn-id').value='';delete document.getElementById('form-grn').dataset.status;
             let nextNo = companyConfig.prefixGrn + String(dbVouchersGrn.length + 1).padStart(5, '0');
             document.getElementById('grn-no').value = nextNo;
             document.getElementById('grn-date').value = localDateString();
@@ -2546,6 +2552,8 @@
             addGrnRow();
             openModal('modal-grn');
         }
+
+        function editGrnVoucher(v){openGrnModal();const form=document.getElementById('form-grn');document.getElementById('grn-id').value=v.id;form.dataset.status=v.status==='Posted'?'Posted':'Draft';document.getElementById('grn-no').value=v.no;document.getElementById('grn-date').value=v.date;document.getElementById('grn-vendor').value=v.vendor;document.getElementById('grn-ref').value=v.ref||'';document.getElementById('grn-remarks').value=v.receivedBy||v.remarks||'';document.getElementById('grn-rows-body').innerHTML='';(v.items||[]).forEach(item=>{addGrnRow();const row=document.querySelector('#grn-rows-body tr:last-child'),rowId=row.id;const select=row.querySelector('select');select.value=item.itemId;onGrnItemSelect(rowId,item.itemId);row.querySelector('.grn-qty').value=item.qty;row.querySelector('.grn-rate').value=item.rate;calcGrnRow(rowId);});if(!(v.items||[]).length)addGrnRow();calcGrnGrandTotal();}
 
         function addGrnRow() {
             let tbody = document.getElementById('grn-rows-body');
@@ -2630,8 +2638,9 @@
                 return;
             }
 
+            const editId=document.getElementById('grn-id').value;
             let voucher = {
-                id: 'grn-' + Date.now(),
+                id: editId||'grn-' + Date.now(),
                 no: document.getElementById('grn-no').value,
                 date: document.getElementById('grn-date').value,
                 vendor: document.getElementById('grn-vendor').value,
@@ -2643,8 +2652,7 @@
                 items
             };
 
-            dbVouchersGrn.unshift(voucher);
-            addLog('Admin', 'Inventory Received', voucher.no, `GRN posted with ${items.length} materials.`);
+            if(editId){const index=dbVouchersGrn.findIndex(v=>v.id===editId);if(index>=0)dbVouchersGrn[index]=voucher;addLog('Admin','Inventory Received',voucher.no,`GRN ${voucher.no} updated (${status}).`);}else{dbVouchersGrn.unshift(voucher);addLog('Admin', 'Inventory Received', voucher.no, `GRN posted with ${items.length} materials.`);}
             saveToLocalStorage();
             runVoucherAutoBackup(status);
             closeModal('modal-grn');
@@ -2678,7 +2686,10 @@
                         <td class="p-3 text-right font-mono font-bold text-amber-600">${companyConfig.currency}${v.grandTotal.toFixed(2)}</td>
                         <td class="p-3 text-center"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${statusBadge}">${v.status}</span></td>
                         <td class="p-3 text-center space-x-2">
+                            <button onclick="viewVoucherDetail('ISSUE', '${v.id}')" class="text-sky-700 hover:text-sky-900" title="View voucher" aria-label="View ${v.no}"><i class="fa-solid fa-eye"></i></button>
+                            <button onclick="editVoucher('ISSUE', '${v.id}')" class="text-blue-600 hover:text-blue-800" title="Edit voucher" aria-label="Edit ${v.no}"><i class="fa-solid fa-pen"></i></button>
                             <button onclick="printVoucher('ISSUE', '${v.id}')" class="text-slate-600 hover:text-black" title="Print A4"><i class="fa-solid fa-print"></i></button>
+                            <button onclick="smartDeleteVoucher('ISSUE', '${v.id}')" class="text-rose-600 hover:text-rose-800" title="Smart Delete: move to Trash" aria-label="Smart Delete ${v.no}"><i class="fa-solid fa-trash-can"></i></button>
                             ${v.status === 'Posted' ? `<button onclick="reverseVoucher('ISSUE', '${v.id}')" class="text-rose-600 hover:text-rose-800" title="Reverse Stock"><i class="fa-solid fa-rotate-left"></i></button>` : ''}
                         </td>
                     </tr>
@@ -2688,6 +2699,8 @@
 
         function openIssueModal() {
             document.getElementById('form-issue').reset();
+            document.getElementById('issue-id').value='';delete document.getElementById('form-issue').dataset.status;
+            editingIssueVoucherId='';
             let nextNo = companyConfig.prefixIssue + String(dbVouchersIssue.length + 1).padStart(5, '0');
             document.getElementById('issue-no').value = nextNo;
             document.getElementById('issue-date').value = localDateString();
@@ -2699,6 +2712,9 @@
             addIssueRow();
             openModal('modal-issue');
         }
+
+        function issueAvailableForEdit(itemId){let qty=getItemCalculatedStock(itemId).current;const original=dbVouchersIssue.find(x=>x.id===editingIssueVoucherId);if(original&&original.status==='Posted')qty+=(original.items||[]).filter(x=>x.itemId===itemId).reduce((sum,x)=>sum+(Number(x.qty)||0),0);return qty;}
+        function editIssueVoucher(v){openIssueModal();editingIssueVoucherId=v.id;const form=document.getElementById('form-issue');document.getElementById('issue-id').value=v.id;form.dataset.status=v.status==='Posted'?'Posted':'Draft';document.getElementById('issue-no').value=v.no;document.getElementById('issue-date').value=v.date;document.getElementById('issue-dept').value=v.dept;document.getElementById('issue-to').value=v.issuedTo||'';document.getElementById('issue-purpose').value=v.purpose||'';document.getElementById('issue-rows-body').innerHTML='';(v.items||[]).forEach(item=>{addIssueRow();const row=document.querySelector('#issue-rows-body tr:last-child'),rowId=row.id,select=row.querySelector('select');select.value=item.itemId;onIssueItemSelect(rowId,item.itemId);row.querySelector('.issue-qty').value=item.qty;row.querySelector('.issue-rate').value=item.rate;calcIssueRow(rowId);});if(!(v.items||[]).length)addIssueRow();calcIssueGrandTotal();validateIssueStock();}
 
         function addIssueRow() {
             let tbody = document.getElementById('issue-rows-body');
@@ -2727,8 +2743,7 @@
         function onIssueItemSelect(rowId, itemId) {
             let item = dbItems.find(i => i.id === itemId);
             if (item) {
-                let calc = getItemCalculatedStock(itemId);
-                document.getElementById(rowId + '-avail').innerText = calc.current;
+                document.getElementById(rowId + '-avail').innerText = issueAvailableForEdit(itemId);
                 let rateInput = document.querySelector(`#${rowId} .issue-rate`);
                 rateInput.value = item.price || 0;
                 calcIssueRow(rowId);
@@ -2744,10 +2759,7 @@
             let issueQty = Number(qtyInput.value) || 0;
             let rate = Number(row.querySelector('.issue-rate').value) || 0;
 
-            let availQty = 0;
-            if (itemId) {
-                availQty = getItemCalculatedStock(itemId).current;
-            }
+            let availQty = itemId ? issueAvailableForEdit(itemId) : 0;
 
             let total = issueQty * rate;
             row.querySelector('.issue-row-total').innerText = companyConfig.currency + total.toFixed(2);
@@ -2758,9 +2770,9 @@
         function validateIssueStock(){
             const rows=[...document.querySelectorAll('#issue-rows-body tr')],requested={};
             rows.forEach(tr=>{const id=tr.querySelector('select').value;if(id)requested[id]=(requested[id]||0)+(Number(tr.querySelector('.issue-qty').value)||0);});
-            const bad=Object.entries(requested).find(([id,qty])=>qty>getItemCalculatedStock(id).current);
+            const bad=Object.entries(requested).find(([id,qty])=>qty>issueAvailableForEdit(id));
             const alertBox=document.getElementById('issue-stock-alert'),alertMsg=document.getElementById('issue-stock-alert-msg'),btn=document.getElementById('btn-post-issue');
-            if(bad){const item=dbItems.find(i=>i.id===bad[0]);alertBox.classList.remove('hidden');alertMsg.innerText=`Insufficient Stock for ${item?.name||'item'}! Available: ${getItemCalculatedStock(bad[0]).current}, Requested: ${bad[1]}.`;btn.disabled=true;btn.classList.add('opacity-50','cursor-not-allowed');}
+            if(bad){const item=dbItems.find(i=>i.id===bad[0]);alertBox.classList.remove('hidden');alertMsg.innerText=`Insufficient Stock for ${item?.name||'item'}! Available: ${issueAvailableForEdit(bad[0])}, Requested: ${bad[1]}.`;btn.disabled=true;btn.classList.add('opacity-50','cursor-not-allowed');}
             else{alertBox.classList.add('hidden');btn.disabled=false;btn.classList.remove('opacity-50','cursor-not-allowed');}
         }
 
@@ -2793,7 +2805,7 @@
 
                     let calc = getItemCalculatedStock(itemId);
                     requestedByItem[itemId]=(requestedByItem[itemId]||0)+qty;
-                    if (status === 'Posted' && requestedByItem[itemId] > calc.current) {
+                    if (status === 'Posted' && requestedByItem[itemId] > issueAvailableForEdit(itemId)) {
                         isValid = false;
                     }
 
@@ -2819,8 +2831,9 @@
                 return;
             }
 
+            const editId=document.getElementById('issue-id').value;
             let voucher = {
-                id: 'iss-' + Date.now(),
+                id: editId||'iss-' + Date.now(),
                 no: document.getElementById('issue-no').value,
                 date: document.getElementById('issue-date').value,
                 dept: document.getElementById('issue-dept').value,
@@ -2831,11 +2844,11 @@
                 items
             };
 
-            dbVouchersIssue.unshift(voucher);
-            addLog('Admin', 'Inventory Issue', voucher.no, `Material issued to ${voucher.dept}. Total Value: ${voucher.grandTotal}`);
+            if(editId){const index=dbVouchersIssue.findIndex(v=>v.id===editId);if(index>=0)dbVouchersIssue[index]=voucher;addLog('Admin','Inventory Issue',voucher.no,`Issue ${voucher.no} updated (${status}).`);}else{dbVouchersIssue.unshift(voucher);addLog('Admin', 'Inventory Issue', voucher.no, `Material issued to ${voucher.dept}. Total Value: ${voucher.grandTotal}`);}
             saveToLocalStorage();
             runVoucherAutoBackup(status);
             closeModal('modal-issue');
+            editingIssueVoucherId='';
             showToast(`Issue voucher ${voucher.no} posted successfully.`);
             renderIssueTable();
             renderDashboard();
@@ -2868,7 +2881,10 @@
                         <td class="p-3 text-slate-500">${v.reason}</td>
                         <td class="p-3 text-center"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800">${v.status}</span></td>
                         <td class="p-3 text-center">
+                            <button onclick="viewVoucherDetail('ADJ', '${v.id}')" class="text-sky-700 hover:text-sky-900" title="View voucher" aria-label="View ${v.no}"><i class="fa-solid fa-eye"></i></button>
+                            <button onclick="editVoucher('ADJ', '${v.id}')" class="text-blue-600 hover:text-blue-800" title="Edit voucher" aria-label="Edit ${v.no}"><i class="fa-solid fa-pen"></i></button>
                             <button onclick="printVoucher('ADJ', '${v.id}')" class="text-slate-600 hover:text-black" title="Print A4"><i class="fa-solid fa-print"></i></button>
+                            <button onclick="smartDeleteVoucher('ADJ', '${v.id}')" class="text-rose-600 hover:text-rose-800" title="Smart Delete: move to Trash" aria-label="Smart Delete ${v.no}"><i class="fa-solid fa-trash-can"></i></button>
                             ${v.status === 'Posted' ? `<button onclick="reverseVoucher('ADJ', '${v.id}')" class="text-rose-600 hover:text-rose-800" title="Reverse Stock"><i class="fa-solid fa-rotate-left"></i></button>` : ''}
                         </td>
                     </tr>
@@ -2878,6 +2894,7 @@
 
         function openAdjModal() {
             document.getElementById('form-adj').reset();
+            document.getElementById('adj-id').value='';editingAdjVoucherId='';
             let nextNo = companyConfig.prefixAdj + String(dbVouchersAdj.length + 1).padStart(5, '0');
             document.getElementById('adj-no').value = nextNo;
             document.getElementById('adj-date').value = localDateString();
@@ -2889,10 +2906,13 @@
         function onAdjItemChange(itemId) {
             if (itemId) {
                 let calc = getItemCalculatedStock(itemId);
-                document.getElementById('adj-system-stock').value = calc.current;
+                const original=dbVouchersAdj.find(x=>x.id===editingAdjVoucherId);
+                document.getElementById('adj-system-stock').value = calc.current-(original&&original.status==='Posted'&&original.itemId===itemId?(Number(original.diff)||0):0);
                 calcAdjDiff();
             }
         }
+
+        function editAdjVoucher(v){openAdjModal();editingAdjVoucherId=v.id;document.getElementById('adj-id').value=v.id;document.getElementById('adj-no').value=v.no;document.getElementById('adj-date').value=v.date;document.getElementById('adj-item').value=v.itemId;onAdjItemChange(v.itemId);const baseline=Number(document.getElementById('adj-system-stock').value)||0;document.getElementById('adj-physical-stock').value=baseline+(Number(v.diff)||0);document.getElementById('adj-reason').value=v.reason||'';calcAdjDiff();}
 
         function calcAdjDiff() {
             let sys = Number(document.getElementById('adj-system-stock').value) || 0;
@@ -2912,8 +2932,9 @@
             let phys = Number(document.getElementById('adj-physical-stock').value) || 0;
             let diff = phys - sys;
 
+            const editId=document.getElementById('adj-id').value;
             let voucher = {
-                id: 'adj-' + Date.now(),
+                id: editId||'adj-' + Date.now(),
                 no: document.getElementById('adj-no').value,
                 date: document.getElementById('adj-date').value,
                 itemId,
@@ -2927,11 +2948,11 @@
                 status: 'Posted'
             };
 
-            dbVouchersAdj.unshift(voucher);
-            addLog('Admin', 'Stock Adjustment', voucher.no, `Adjusted ${voucher.itemName} from ${sys} to ${phys} (${diff}). Reason: ${voucher.reason}`);
+            if(editId){const index=dbVouchersAdj.findIndex(v=>v.id===editId);if(index>=0)dbVouchersAdj[index]=voucher;addLog('Admin','Stock Adjustment',voucher.no,`Adjustment ${voucher.no} updated (${diff}).`);}else{dbVouchersAdj.unshift(voucher);addLog('Admin', 'Stock Adjustment', voucher.no, `Adjusted ${voucher.itemName} from ${sys} to ${phys} (${diff}). Reason: ${voucher.reason}`);}
             saveToLocalStorage();
             runVoucherAutoBackup(voucher.status);
             closeModal('modal-adj');
+            editingAdjVoucherId='';
             showToast(`Adjustment ${voucher.no} posted successfully.`);
             renderAdjTable();
             renderDashboard();
@@ -3046,6 +3067,7 @@
                         <td class="p-3 text-right font-mono font-bold text-brand-600">${calc.current}</td>
                         <td class="p-3 text-center"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${i.status==='Active'?'bg-emerald-100 text-emerald-800':'bg-slate-100 text-slate-600'}">${i.status}</span></td>
                         <td class="p-3 text-center space-x-2">
+                            <button onclick="viewItem('${i.id}')" class="text-sky-700 hover:text-sky-900" title="View item" aria-label="View ${i.name}"><i class="fa-solid fa-eye"></i></button>
                             <button onclick="editItem('${i.id}')" class="text-blue-600 hover:text-blue-800"><i class="fa-solid fa-pen"></i></button>
                             <button onclick="softDeleteItem('${i.id}')" class="text-rose-600 hover:text-rose-800"><i class="fa-solid fa-trash-can"></i></button>
                         </td>
@@ -3189,7 +3211,9 @@
                         <td class="p-3 text-slate-500">${c.desc || '-'}</td>
                         <td class="p-3 text-center"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${c.status==='Active'?'bg-emerald-100 text-emerald-800':'bg-slate-100 text-slate-600'}">${c.status}</span></td>
                         <td class="p-3 text-center space-x-2">
+                            <button onclick="viewMasterRecord('Category','${c.id}')" class="text-sky-700" title="View category" aria-label="View ${c.name}"><i class="fa-solid fa-eye"></i></button>
                             <button onclick="editCategory('${c.id}')" class="text-blue-600"><i class="fa-solid fa-pen"></i></button>
+                            <button onclick="smartDeleteMaster('Category','${c.id}')" class="text-rose-600" title="Smart Delete: move to Trash" aria-label="Smart Delete ${c.name}"><i class="fa-solid fa-trash-can"></i></button>
                         </td>
                     </tr>
                 `;
@@ -3235,7 +3259,7 @@
                         <td class="p-3 font-semibold">${u.name}</td>
                         <td class="p-3 text-slate-500">${u.desc || '-'}</td>
                         <td class="p-3 text-center"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">${u.status}</span></td>
-                        <td class="p-3 text-center space-x-2"><button onclick="editUom('${u.id}')" class="text-blue-600"><i class="fa-solid fa-pen"></i></button><button onclick="deleteUom('${u.id}')" class="text-rose-600"><i class="fa-solid fa-trash-can"></i></button></td>
+                        <td class="p-3 text-center space-x-2"><button onclick="viewMasterRecord('UOM','${u.id}')" class="text-sky-700" title="View unit" aria-label="View ${u.code}"><i class="fa-solid fa-eye"></i></button><button onclick="editUom('${u.id}')" class="text-blue-600" title="Edit unit"><i class="fa-solid fa-pen"></i></button><button onclick="smartDeleteMaster('UOM','${u.id}')" class="text-rose-600" title="Smart Delete: move to Trash" aria-label="Smart Delete ${u.code}"><i class="fa-solid fa-trash-can"></i></button></td>
                     </tr>
                 `;
             });
@@ -3277,7 +3301,7 @@
                         <td class="p-3 text-slate-500">${v.phone} / ${v.email}</td>
                         <td class="p-3 text-slate-500">${v.city}</td>
                         <td class="p-3 text-center"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">${v.status}</span></td>
-                        <td class="p-3 text-center space-x-2"><button onclick="editVendor('${v.id}')" class="text-blue-600"><i class="fa-solid fa-pen"></i></button><button onclick="deleteVendor('${v.id}')" class="text-rose-600"><i class="fa-solid fa-trash-can"></i></button></td>
+                        <td class="p-3 text-center space-x-2"><button onclick="viewMasterRecord('Vendor','${v.id}')" class="text-sky-700" title="View vendor" aria-label="View ${v.name}"><i class="fa-solid fa-eye"></i></button><button onclick="editVendor('${v.id}')" class="text-blue-600" title="Edit vendor"><i class="fa-solid fa-pen"></i></button><button onclick="smartDeleteMaster('Vendor','${v.id}')" class="text-rose-600" title="Smart Delete: move to Trash" aria-label="Smart Delete ${v.name}"><i class="fa-solid fa-trash-can"></i></button></td>
                     </tr>
                 `;
             });
@@ -3379,10 +3403,39 @@
         function readImportFile(file){if(!file)return;const reader=new FileReader();reader.onload=()=>{try{if(typeof XLSX==='undefined')throw Error('Excel library unavailable');const wb=XLSX.read(reader.result,{type:'array'});importRows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});document.getElementById('import-row-count').innerText=importRows.length;document.getElementById('import-preview-tbody').innerHTML=importRows.slice(0,20).map(r=>`<tr><td>${r.Code||r.code||''}</td><td>${r.Name||r.name||''}</td><td>${r.Category||r.category||''}</td><td>${r.UOM||r.uom||''}</td></tr>`).join('');document.getElementById('import-preview-area').classList.remove('hidden');}catch(e){showToast('Could not read this file: '+e.message,'error');}};reader.readAsArrayBuffer(file);}
         function restoreBackupJson(){const f=document.getElementById('restore-json-file').files[0];if(!f)return showToast('Choose a JSON backup file first.','error');if(!confirm('Restore this backup? It replaces the current inventory data.'))return;const r=new FileReader();r.onload=async()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d.dbItems))throw Error('Backup does not contain item data');applyBackupData(d);if(supabaseUser){supabaseLocalDirty=true;supabaseLocalChangeVersion++;await syncSharedInventory(true);}refreshActiveView();showToast('Backup restored.');}catch(e){showToast('Invalid backup file: '+e.message,'error');}};r.readAsText(f);}
         function clearActivityLogs(){if(!confirm('Clear the activity history?'))return;dbWorkingLog=[];saveToLocalStorage();renderActivityLog();}
-        function deleteUom(id){const u=dbUoms.find(x=>x.id===id);if(!u)return;if(dbItems.some(i=>i.uom===u.code))return showToast('This unit is used by an item and cannot be deleted.','error');dbUoms=dbUoms.filter(x=>x.id!==id);saveToLocalStorage();renderUomsTable();}
-        function deleteVendor(id){const v=dbVendors.find(x=>x.id===id);if(!v)return;if(dbItems.some(i=>i.vendor===v.name)||dbVouchersGrn.some(x=>x.vendor===v.name))return showToast('This vendor is used by inventory records and cannot be deleted.','error');dbVendors=dbVendors.filter(x=>x.id!==id);saveToLocalStorage();renderVendorsTable();}
-        function viewVoucherDetail(type,id){const list=type==='GRN'?dbVouchersGrn:type==='Issue'?dbVouchersIssue:type==='Adjustment'?dbVouchersAdj:dbVouchersIssue;const v=list.find(x=>x.id===id);if(v)alert(JSON.stringify(v,null,2));}
-        function printVoucher(type,id){const list=type==='GRN'?dbVouchersGrn:type==='ISSUE'?dbVouchersIssue:dbVouchersAdj;const v=list.find(x=>x.id===id);if(!v)return;const w=window.open('','_blank');if(!w)return showToast('Allow pop-ups to print this voucher.','error');w.document.write(`<title>${v.no}</title><h1>${companyConfig.name}</h1><h2>${type} ${v.no}</h2><pre>${JSON.stringify(v,null,2)}</pre><style>@page{size:A4;margin:15mm}body{font:12pt Arial}</style>`);w.document.close();w.print();}
+        function smartDeleteMaster(type,id){
+            const list=type==='Item'?dbItems:type==='Category'?dbCategories:type==='UOM'?dbUoms:dbVendors;const index=list.findIndex(x=>x.id===id);if(index<0)return;const record=list[index];
+            if(type==='Category'&&dbItems.some(i=>i.category===record.name))return showToast('This category is used by an item. Reassign those items before deleting it.','error');
+            if(type==='UOM'&&dbItems.some(i=>i.uom===record.code))return showToast('This unit is used by an item and cannot be deleted.','error');
+            if(type==='Vendor'&&(dbItems.some(i=>i.vendor===record.name)||dbVouchersGrn.some(v=>v.vendor===record.name)))return showToast('This vendor is used by inventory records and cannot be deleted.','error');
+            if(!confirm(`Move ${record.name||record.code} to the Trash Bin? You can restore it later.`))return;
+            list.splice(index,1);dbTrashBin.unshift({deletedAt:new Date().toLocaleString(),type,code:record.code||record.name,name:record.name||record.code,originalData:record});addLog('Admin','Trash Bin',record.code||record.name,`Smart-deleted ${type} ${record.name||record.code}; original record saved for restore.`);saveToLocalStorage();renderItemsTable();renderCategoriesTable();renderUomsTable();renderVendorsTable();renderDashboard();showToast(`${record.name||record.code} moved to Trash.`);
+        }
+        function deleteUom(id){smartDeleteMaster('UOM',id);}
+        function deleteVendor(id){smartDeleteMaster('Vendor',id);}
+        function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
+        function showRecordDetail(title,record){
+            const box=document.getElementById('record-detail-content');
+            document.getElementById('record-detail-title').innerText=title;
+            box.innerHTML='<dl class="grid grid-cols-1 sm:grid-cols-2 gap-3">'+Object.entries(record||{}).filter(([key])=>key!=='id').map(([key,value])=>{const shown=Array.isArray(value)?value.join(', '):(value&&typeof value==='object'?JSON.stringify(value,null,2):String(value??'—'));return `<div class="rounded-lg bg-slate-50 p-3 dark:bg-slate-700"><dt class="text-[10px] font-bold uppercase tracking-wide text-slate-500">${escapeHtml(key.replace(/([A-Z])/g,' $1'))}</dt><dd class="mt-1 whitespace-pre-wrap break-words text-sm">${escapeHtml(shown||'—')}</dd></div>`;}).join('')+'</dl>';
+            openModal('modal-record-detail');
+        }
+        function viewItem(id){const item=dbItems.find(x=>x.id===id);if(item)openItemProfile(id);}
+        function viewMasterRecord(type,id){const list=type==='Category'?dbCategories:type==='UOM'?dbUoms:dbVendors;const record=list.find(x=>x.id===id);if(record)showRecordDetail(`${type}: ${record.name||record.code}`,record);}
+        function getVoucherList(type){return type==='GRN'?dbVouchersGrn:type==='ISSUE'?dbVouchersIssue:dbVouchersAdj;}
+        function viewVoucherDetail(type,id){const v=getVoucherList(type).find(x=>x.id===id);if(!v)return;const heading=(type==='GRN'?'Goods Received Note':type==='ISSUE'?'Material Issue Voucher':'Stock Adjustment Voucher')+' '+v.no;const detail={Voucher:v.no,Date:v.date,Status:v.status};if(type==='GRN')Object.assign(detail,{Vendor:v.vendor,Reference:v.ref||'—',ReceivedBy:v.receivedBy||v.remarks||'—',Remarks:v.remarks||'—'});else if(type==='ISSUE')Object.assign(detail,{Department:v.dept,IssuedTo:v.issuedTo||'—',Purpose:v.purpose||'—'});else Object.assign(detail,{Item:v.itemName,Code:v.itemCode,SystemStock:v.systemStock,PhysicalStock:v.physicalStock,Difference:v.diff,Type:v.type,Reason:v.reason});const rows=type==='ADJ'?[]:(v.items||[]).map(x=>({Code:x.itemCode,Item:x.itemName,UOM:x.uom,Quantity:x.qty,Rate:(Number(x.rate)||0).toFixed(2),Amount:(Number(x.total)||0).toFixed(2)}));if(type==='ADJ')detail.Line= `${v.itemCode||''} ${v.itemName||''}: system ${v.systemStock}, physical ${v.physicalStock}, difference ${v.diff}`;showRecordDetail(heading,{...detail,Items:rows.length?rows.map(x=>`${x.Code} — ${x.Item}: ${x.Quantity} ${x.UOM} @ ${x.Rate} = ${x.Amount}`).join('\n'):'—'});}
+        function editVoucher(type,id){const v=getVoucherList(type).find(x=>x.id===id);if(!v)return;if(type==='GRN')editGrnVoucher(v);else if(type==='ISSUE')editIssueVoucher(v);else editAdjVoucher(v);}
+        function smartDeleteVoucher(type,id){const list=getVoucherList(type),index=list.findIndex(x=>x.id===id);if(index<0)return;const v=list[index];if(!confirm(`Move ${v.no} to Trash? You can restore it later. A posted voucher’s stock effect will be removed until restored.`))return;list.splice(index,1);dbTrashBin.unshift({deletedAt:new Date().toLocaleString(),type:type+' Voucher',code:v.no,name:(type==='GRN'?'Goods Received':type==='ISSUE'?'Material Issue':'Stock Adjustment')+' — '+v.no,originalData:v});addLog('Admin','Trash Bin',v.no,`Smart-deleted ${type} voucher ${v.no}; original record saved for restore.`);saveToLocalStorage();renderGrnTable();renderIssueTable();renderAdjTable();renderDashboard();showToast(`${v.no} moved to Trash. Restore it from Trash Bin if needed.`);}
+        function printVoucher(type,id){
+            const v=getVoucherList(type).find(x=>x.id===id);if(!v)return;
+            const title=type==='GRN'?'Goods Received Note':type==='ISSUE'?'Material Issue Voucher':'Stock Adjustment Voucher';
+            const rows=type==='ADJ'?`<tr><td>1</td><td>${escapeHtml(v.itemCode||'')}</td><td>${escapeHtml(v.itemName||'')}</td><td>${escapeHtml(dbItems.find(i=>i.id===v.itemId)?.uom||'')}</td><td class="num">${escapeHtml(v.systemStock)}</td><td class="num">${escapeHtml(v.physicalStock)}</td><td class="num">${Number(v.diff)>0?'+':''}${escapeHtml(v.diff)}</td></tr>`:(v.items||[]).map((x,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(x.itemCode)}</td><td>${escapeHtml(x.itemName)}</td><td>${escapeHtml(x.uom)}</td><td class="num">${escapeHtml(x.qty)}</td><td class="num">${escapeHtml((Number(x.rate)||0).toFixed(2))}</td><td class="num">${escapeHtml((Number(x.total)||0).toFixed(2))}</td></tr>`).join('');
+            const headers=type==='ADJ'?'<th>Qty Before</th><th>Counted Qty</th><th>Difference</th>':'<th>Quantity</th><th>Unit Rate</th><th>Amount</th>';
+            const meta=type==='GRN'?`<div><b>Supplier:</b> ${escapeHtml(v.vendor)}</div><div><b>Invoice / Ref:</b> ${escapeHtml(v.ref||'—')}</div><div><b>Received by:</b> ${escapeHtml(v.receivedBy||v.remarks||'—')}</div>`:type==='ISSUE'?`<div><b>Department:</b> ${escapeHtml(v.dept)}</div><div><b>Issued to:</b> ${escapeHtml(v.issuedTo||'—')}</div><div><b>Purpose / Job Ref:</b> ${escapeHtml(v.purpose||'—')}</div>`:`<div><b>Adjustment type:</b> ${escapeHtml(v.type)}</div><div><b>Reason:</b> ${escapeHtml(v.reason||'—')}</div>`;
+            const totals=type==='ADJ'?`<div class="total"><span>Stock difference</span><strong>${Number(v.diff)>0?'+':''}${escapeHtml(v.diff)} ${escapeHtml(dbItems.find(i=>i.id===v.itemId)?.uom||'')}</strong></div>`:`<div class="total"><span>Total ${type==='GRN'?'receipt':'issue'} value</span><strong>${escapeHtml(companyConfig.currency)}${(Number(v.grandTotal)||0).toFixed(2)}</strong></div>`;
+            const w=window.open('','_blank');if(!w)return showToast('Allow pop-ups to print this voucher.','error');
+            w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(v.no)} — ${escapeHtml(title)}</title><style>@page{size:A4 portrait;margin:14mm}*{box-sizing:border-box}body{font:11px Arial,sans-serif;color:#172033;margin:0}header{text-align:center;border-bottom:2px solid #1475a9;padding-bottom:12px;margin-bottom:18px}h1{font-size:20px;margin:0 0 5px}header p{margin:3px;color:#475569}h2{font-size:17px;margin:14px 0 0;text-transform:uppercase}.meta{display:grid;grid-template-columns:1fr 1fr;gap:8px 20px;margin:0 0 18px}.meta div{padding:7px 9px;background:#f3f6f9;border-radius:4px}table{width:100%;border-collapse:collapse}th,td{padding:8px 7px;border:1px solid #cbd5e1;text-align:left}th{background:#eaf1f6;text-transform:uppercase;font-size:9px}.num{text-align:right;font-variant-numeric:tabular-nums}.total{display:flex;justify-content:flex-end;gap:28px;margin:15px 0;font-size:14px}.reason{padding:10px;border:1px solid #cbd5e1;margin-top:12px}.signatures{display:grid;grid-template-columns:repeat(3,1fr);gap:26px;margin-top:55px}.signatures div{border-top:1px solid #64748b;padding-top:7px;text-align:center;color:#475569;font-size:10px}.footer{margin-top:26px;text-align:center;color:#64748b;font-size:9px}</style></head><body><header><h1>${escapeHtml(companyConfig.name)}</h1><p>${escapeHtml(companyConfig.tagline)}</p><p>${escapeHtml(companyConfig.address)} · ${escapeHtml(companyConfig.phone)} · ${escapeHtml(companyConfig.email)}</p><h2>${escapeHtml(title)}</h2></header><div class="meta"><div><b>Voucher No:</b> ${escapeHtml(v.no)}</div><div><b>Date:</b> ${escapeHtml(v.date)}</div><div><b>Status:</b> ${escapeHtml(v.status)}</div>${meta}</div><table><thead><tr><th>#</th><th>Item Code</th><th>Material</th><th>UOM</th>${headers}</tr></thead><tbody>${rows}</tbody></table>${totals}${type==='ADJ'?'':`<div class="reason"><b>Remarks:</b> ${escapeHtml(v.remarks||'—')}</div>`}<div class="signatures"><div>Prepared by</div><div>Checked by</div><div>Authorized by</div></div><div class="footer">Printed ${escapeHtml(new Date().toLocaleString())}</div></body></html>`);w.document.close();w.focus();w.print();
+        }
 
         function selectReportTab(type) {
             currentReportType = type;
@@ -3569,12 +3622,11 @@
 
         function restoreTrashItem(index) {
             let t = dbTrashBin[index];
-            if (t.type === 'Item') {
-                dbItems.push(t.originalData);
-            }
+            const targets={'Item':dbItems,'Category':dbCategories,'UOM':dbUoms,'Vendor':dbVendors,'GRN Voucher':dbVouchersGrn,'ISSUE Voucher':dbVouchersIssue,'ADJ Voucher':dbVouchersAdj};const target=targets[t.type];if(!target||!t.originalData)return showToast('This trash entry cannot be restored automatically.','error');if(target.some(x=>x.id===t.originalData.id))return showToast('This record is already active.','error');target.push(t.originalData);
             dbTrashBin.splice(index, 1);
             saveToLocalStorage();
             showToast(`Restored ${t.name} from Trash Bin.`);
+            renderItemsTable();renderCategoriesTable();renderUomsTable();renderVendorsTable();renderGrnTable();renderIssueTable();renderAdjTable();
             renderTrashBinTable();
             renderDashboard();
         }
@@ -3797,6 +3849,13 @@
       <button id="supabase-login-switch" type="button" onclick="toggleSupabaseLoginMode()" class="w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Create an account instead</button>
     </form>
     <p class="mt-5 text-center text-[11px] text-slate-400">Only authorized members of this inventory workspace can continue.</p>
+  </div>
+</div>
+<div id="modal-record-detail" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 p-4">
+  <div class="w-full max-w-2xl max-h-[85vh] overflow-hidden rounded-xl bg-white shadow-2xl dark:bg-slate-800">
+    <div class="flex items-center justify-between bg-brand-600 px-5 py-4 text-white"><h3 id="record-detail-title" class="font-bold">Record details</h3><button type="button" onclick="closeModal('modal-record-detail')" class="text-xl" aria-label="Close">&times;</button></div>
+    <div id="record-detail-content" class="max-h-[70vh] overflow-y-auto p-5 text-slate-800 dark:text-slate-100"></div>
+    <div class="flex justify-end border-t p-4 dark:border-slate-700"><button type="button" onclick="closeModal('modal-record-detail')" class="rounded-lg bg-slate-200 px-4 py-2 text-xs font-semibold dark:bg-slate-700">Close</button></div>
   </div>
 </div>
 </body>
