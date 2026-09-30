@@ -60,6 +60,8 @@
         .dark ::-webkit-scrollbar-thumb {
             background: rgba(255, 255, 255, 0.2);
         }
+        @media(min-width:768px){#nav-owner-mobile{display:none!important}}
+        @media(max-width:767px){body.owner-view-mode #sidebar{display:none!important}body.owner-view-mode main{padding:0!important;padding-bottom:76px!important}body.owner-view-mode #view-owner-mobile{min-height:calc(100dvh - 64px);padding:16px}body.owner-view-mode #owner-mobile-bottom-nav{display:grid!important}body.owner-view-mode #toggle-sidebar-btn,body.owner-view-mode #owner-full-app-btn{display:none!important}}
         /* Printable Voucher CSS */
         @media print {
             body * {
@@ -175,6 +177,9 @@
                     <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition">
                         <i class="fa-solid fa-chart-line text-brand-500 w-5"></i>
                         <span>Dashboard</span>
+                    </button>
+                    <button onclick="switchTab('owner-mobile')" id="nav-owner-mobile" class="nav-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition">
+                        <i class="fa-solid fa-mobile-screen-button text-violet-500 w-5"></i><span>Owner Mobile View</span>
                     </button>
                     <button onclick="switchTab('inventory-overview')" id="nav-inventory-overview" class="nav-item w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition">
                         <i class="fa-solid fa-boxes-stacked text-teal-500 w-5"></i>
@@ -507,6 +512,28 @@
                         </table>
                     </div>
                 </div>
+            </section>
+
+            <!-- Owner-friendly read-only mobile view -->
+            <section id="view-owner-mobile" class="view-tab hidden space-y-4 max-w-5xl mx-auto">
+                <div class="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 p-5 text-white shadow-sm">
+                    <div class="flex items-start justify-between gap-3"><div><p class="text-xs font-semibold uppercase tracking-wider text-slate-300">Owner view · Read only</p><h2 class="mt-1 text-xl font-bold">Inventory at a glance</h2><p class="mt-1 text-xs text-slate-300">Live shared stock · <span id="owner-live-status">Waiting for connection…</span></p></div><button id="owner-full-app-btn" onclick="switchTab('dashboard')" class="rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/20">Full App</button></div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <button type="button" onclick="openOwnerStockFilter('')" aria-label="Show all stock items" class="rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-brand-400 hover:shadow-md dark:border-slate-700 dark:bg-slate-800"><div class="text-xs text-slate-500">Overall Stock</div><div id="owner-kpi-stock" class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">—</div><div class="mt-1 text-[10px] text-slate-500">Tap to see all items</div></button>
+                    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div class="text-xs text-slate-500">Stock Value</div><div id="owner-kpi-value" class="mt-1 text-xl font-bold text-slate-900 dark:text-white">—</div></div>
+                    <button type="button" onclick="openOwnerStockFilter('Low Stock')" aria-label="Show low stock items" class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-left shadow-sm transition hover:shadow-md dark:border-amber-900 dark:bg-amber-950/30"><div class="text-xs text-amber-800 dark:text-amber-300">Low Stock</div><div id="owner-kpi-low" class="mt-1 text-2xl font-bold text-amber-700 dark:text-amber-300">—</div><div class="mt-1 text-[10px] text-amber-700">Tap to see items</div></button>
+                    <button type="button" onclick="openOwnerStockFilter('Out of Stock')" aria-label="Show out of stock items" class="rounded-xl border border-rose-200 bg-rose-50 p-4 text-left shadow-sm transition hover:shadow-md dark:border-rose-900 dark:bg-rose-950/30"><div class="text-xs text-rose-800 dark:text-rose-300">Out of Stock</div><div id="owner-kpi-out" class="mt-1 text-2xl font-bold text-rose-700 dark:text-rose-300">—</div><div class="mt-1 text-[10px] text-rose-700">Tap to see items</div></button>
+                </div>
+                <div id="owner-panel-dashboard" class="space-y-4">
+                    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div class="mb-3 flex items-center justify-between"><h3 class="font-bold text-slate-800 dark:text-white">Needs attention</h3><button onclick="setOwnerSubview('inventory');document.getElementById('owner-mobile-filter').value='Low Stock';renderOwnerInventory()" class="text-xs font-semibold text-brand-600">See stock</button></div><div id="owner-attention-list" class="space-y-2"></div></div>
+                    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"><h3 class="mb-3 font-bold text-slate-800 dark:text-white">Recent stock activity</h3><div id="owner-recent-list" class="space-y-2"></div></div>
+                </div>
+                <div id="owner-panel-inventory" class="hidden space-y-3">
+                    <div class="flex gap-2"><input id="owner-mobile-search" oninput="renderOwnerInventory()" type="search" placeholder="Search item name or code" class="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm dark:border-slate-700 dark:bg-slate-800"><select id="owner-mobile-filter" onchange="renderOwnerInventory()" class="rounded-xl border border-slate-200 bg-white px-2 text-xs dark:border-slate-700 dark:bg-slate-800"><option value="">All</option><option value="Low Stock">Low stock</option><option value="Out of Stock">Out of stock</option><option value="Normal">Normal</option></select></div>
+                    <div id="owner-inventory-list" class="space-y-2"></div>
+                </div>
+                <nav id="owner-mobile-bottom-nav" class="fixed bottom-0 left-0 right-0 z-30 hidden grid-cols-2 border-t border-slate-200 bg-white/95 p-2 pb-[max(8px,env(safe-area-inset-bottom))] shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"><button id="owner-tab-dashboard" onclick="setOwnerSubview('dashboard')" class="rounded-xl px-3 py-3 text-sm font-semibold text-brand-700"><i class="fa-solid fa-chart-pie mr-2"></i>Dashboard</button><button id="owner-tab-inventory" onclick="setOwnerSubview('inventory')" class="rounded-xl px-3 py-3 text-sm font-semibold text-slate-500"><i class="fa-solid fa-boxes-stacked mr-2"></i>Inventory</button></nav>
             </section>
 
             <!-- 3. STOCK LEDGER VIEW -->
@@ -1663,6 +1690,7 @@
 
         // Global Active Filters
         let activeTab = 'dashboard';
+        let ownerSubview = 'dashboard';
 
         function localDateString(date=new Date()) { return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`; }
 
@@ -1759,6 +1787,7 @@
         function setSupabaseStatus(message,isError=false){
             const el=document.getElementById('supabase-cloud-status'),loginStatus=document.getElementById('supabase-login-status');
             [el,loginStatus].filter(Boolean).forEach(node=>{node.innerText=message;node.classList.toggle('text-rose-600',!!isError);node.classList.toggle('text-emerald-600',!isError);});
+            const ownerStatus=document.getElementById('owner-live-status');if(ownerStatus)ownerStatus.innerText=message.startsWith('Live sync connected')||message.startsWith('Connected ·')?'Connected · updates automatically':message.startsWith('Inventory updated')?'Just updated':message.startsWith('Supabase')||isError?'Reconnecting…':'Syncing…';
         }
         function getSupabaseAuthFields(){
             const gate=document.getElementById('supabase-auth-gate');
@@ -2029,6 +2058,7 @@
          *************************************************************/
         function switchTab(tabId) {
             activeTab = tabId;
+            document.body.classList.toggle('owner-view-mode',tabId==='owner-mobile');
             if(tabId==='settings'){document.getElementById('supabase-auth-gate')?.classList.add('hidden');}
             else if(!supabaseAccessGranted)document.getElementById('supabase-auth-gate')?.classList.remove('hidden');
             document.querySelectorAll('.view-tab').forEach(el => el.classList.add('hidden'));
@@ -2047,6 +2077,7 @@
 
             // Refresh specific view contents
             if (tabId === 'dashboard') renderDashboard();
+            if (tabId === 'owner-mobile') renderOwnerView();
             if (tabId === 'inventory-overview') renderOverviewTable();
             if (tabId === 'stock-ledger') renderStockLedger();
             if (tabId === 'vouchers-grn') renderGrnTable();
@@ -2060,6 +2091,28 @@
             if (tabId === 'working-log') renderActivityLog();
             if (tabId === 'trash-bin') renderTrashBinTable();
             if (tabId === 'settings') loadSettingsValues();
+        }
+
+        function setOwnerSubview(view){ownerSubview=view==='inventory'?'inventory':'dashboard';document.getElementById('owner-panel-dashboard').classList.toggle('hidden',ownerSubview!=='dashboard');document.getElementById('owner-panel-inventory').classList.toggle('hidden',ownerSubview!=='inventory');document.getElementById('owner-tab-dashboard').className='rounded-xl px-3 py-3 text-sm font-semibold '+(ownerSubview==='dashboard'?'text-brand-700':'text-slate-500');document.getElementById('owner-tab-inventory').className='rounded-xl px-3 py-3 text-sm font-semibold '+(ownerSubview==='inventory'?'text-brand-700':'text-slate-500');if(ownerSubview==='inventory')renderOwnerInventory();}
+        function openOwnerStockFilter(status){document.getElementById('owner-mobile-filter').value=status;document.getElementById('owner-mobile-search').value='';setOwnerSubview('inventory');}
+        function ownerEscape(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+        function ownerNumber(value){return Number(value||0).toLocaleString(undefined,{maximumFractionDigits:2});}
+        function renderOwnerView(){
+            const calculations=dbItems.map(item=>({item,calc:getItemCalculatedStock(item.id)}));
+            document.getElementById('owner-kpi-stock').innerText=ownerNumber(calculations.reduce((sum,row)=>sum+(Number(row.calc.current)||0),0));
+            document.getElementById('owner-kpi-value').innerText=companyConfig.currency+calculations.reduce((sum,row)=>sum+(Number(row.calc.value)||0),0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+            document.getElementById('owner-kpi-low').innerText=calculations.filter(x=>x.calc.status==='Low Stock').length.toLocaleString();
+            document.getElementById('owner-kpi-out').innerText=calculations.filter(x=>x.calc.status==='Out of Stock').length.toLocaleString();
+            const attention=calculations.filter(x=>x.calc.status!=='Normal').sort((a,b)=>a.calc.current-b.calc.current).slice(0,6), attentionNode=document.getElementById('owner-attention-list');
+            attentionNode.innerHTML=attention.length?attention.map(({item,calc})=>`<div class="flex items-center justify-between gap-3 rounded-lg bg-slate-50 p-3 dark:bg-slate-700/60"><div class="min-w-0"><div class="truncate text-sm font-semibold">${ownerEscape(item.name)}</div><div class="text-xs text-slate-500">${ownerEscape(item.code)} · ${ownerEscape(item.uom)}</div></div><div class="shrink-0 text-right"><div class="font-bold">${ownerNumber(calc.current)} ${ownerEscape(item.uom)}</div><span class="text-[11px] font-semibold ${calc.status==='Low Stock'?'text-amber-600':'text-rose-600'}">${calc.status}</span></div></div>`).join(''):'<p class="py-3 text-sm text-emerald-700">All items are above reorder levels.</p>';
+            const recent=[...dbVouchersGrn.map(v=>({...v,ownerType:'Received'})),...dbVouchersIssue.map(v=>({...v,ownerType:'Issued'})),...dbVouchersAdj.map(v=>({...v,ownerType:'Adjusted'}))].filter(v=>v.status==='Posted').sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,5), recentNode=document.getElementById('owner-recent-list');
+            recentNode.innerHTML=recent.length?recent.map(v=>{const qty=v.items?v.items.reduce((s,l)=>s+(Number(l.qty)||0),0):Math.abs(Number(v.diff)||0);const detail=v.items?(v.items.length===1?v.items[0].itemName:`${v.items.length} items`):(v.itemName||'Stock adjustment');return `<div class="flex items-center justify-between gap-3 border-b border-slate-100 py-2 last:border-0 dark:border-slate-700"><div class="min-w-0"><div class="truncate text-sm font-semibold">${ownerEscape(detail)}</div><div class="text-xs text-slate-500">${ownerEscape(v.date||'')} · ${ownerEscape(v.no||'')}</div></div><div class="shrink-0 text-right text-xs"><div class="font-bold">${v.ownerType==='Issued'?'−':'+'}${ownerNumber(qty)}</div><div class="text-slate-500">${v.ownerType}</div></div></div>`;}).join(''):'<p class="py-3 text-sm text-slate-500">No posted stock activity yet.</p>';
+            setOwnerSubview(ownerSubview);
+        }
+        function renderOwnerInventory(){
+            const q=(document.getElementById('owner-mobile-search')?.value||'').trim().toLowerCase(),status=document.getElementById('owner-mobile-filter')?.value||'';
+            const rows=dbItems.map(item=>({item,calc:getItemCalculatedStock(item.id)})).filter(({item,calc})=>(!q||`${item.name} ${item.code} ${item.category}`.toLowerCase().includes(q))&&(!status||calc.status===status));
+            document.getElementById('owner-inventory-list').innerHTML=rows.length?rows.map(({item,calc})=>`<article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div class="flex items-start justify-between gap-3"><div class="min-w-0"><h3 class="break-words font-semibold text-slate-900 dark:text-white">${ownerEscape(item.name)}</h3><p class="mt-1 text-xs text-slate-500">${ownerEscape(item.code)} · ${ownerEscape(item.category||'Uncategorized')}</p></div><span class="shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${calc.status==='Normal'?'bg-emerald-100 text-emerald-800':calc.status==='Low Stock'?'bg-amber-100 text-amber-800':'bg-rose-100 text-rose-800'}">${calc.status}</span></div><div class="mt-4 flex items-end justify-between border-t border-slate-100 pt-3 dark:border-slate-700"><div><div class="text-[11px] text-slate-500">Available quantity</div><div class="text-xl font-bold text-slate-900 dark:text-white">${ownerNumber(calc.current)} <span class="text-sm font-medium text-slate-500">${ownerEscape(item.uom)}</span></div></div><div class="text-right"><div class="text-[11px] text-slate-500">Reorder at</div><div class="font-semibold">${ownerNumber(item.reorderLevel)} ${ownerEscape(item.uom)}</div></div></div></article>`).join(''):'<div class="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">No items match this search.</div>';
         }
 
         /*************************************************************
@@ -3817,8 +3870,9 @@
                 }
             });
 
-            // Initial view load
-            switchTab('dashboard');
+            // Phone visitors get the Owner view; ?view=full opens the complete staff interface.
+            const requestedView=new URLSearchParams(location.search).get('view');
+            switchTab(requestedView==='full'?'dashboard':(requestedView==='owner'||window.matchMedia('(max-width: 767px)').matches?'owner-mobile':'dashboard'));
         });
 
         function renderGlobalSearch(){
