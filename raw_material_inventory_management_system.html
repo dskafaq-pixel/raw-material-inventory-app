@@ -1043,12 +1043,13 @@
 
                             <div class="p-3 bg-sky-50 dark:bg-slate-700/50 rounded-lg space-y-3 border border-sky-200 dark:border-slate-600">
                                 <div>
-                                    <div class="font-semibold text-slate-700 dark:text-slate-200">Supabase Cloud Backup</div>
-                                    <p class="text-[11px] text-slate-500">Sign in with the same account on every device. Inventory changes sync automatically; the latest cloud data loads on a new device. Your backups stay private to your account. Avoid editing on two devices at once; the latest saved copy wins.</p>
+                                    <div class="font-semibold text-slate-700 dark:text-slate-200">Supabase Shared Live Inventory</div>
+                                    <p class="text-[11px] text-slate-500">Sign in on each device with an authorized Supabase account. All authorized members of this workspace share one inventory. Changes save to Supabase and update open devices automatically.</p>
                                 </div>
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                     <input type="url" id="supabase-project-url" placeholder="https://your-project.supabase.co" class="w-full p-2 bg-white dark:bg-slate-800 border rounded-lg text-xs">
                                     <input type="text" id="supabase-public-key" placeholder="Supabase public anon / publishable key" class="w-full p-2 bg-white dark:bg-slate-800 border rounded-lg text-xs font-mono">
+                                    <input type="text" id="supabase-workspace-id" placeholder="Shared workspace UUID (from setup SQL)" class="w-full p-2 bg-white dark:bg-slate-800 border rounded-lg text-xs font-mono sm:col-span-2">
                                 </div>
                                 <button onclick="saveSupabaseSettings()" class="px-3 py-1.5 bg-sky-700 text-white rounded-lg text-xs font-semibold">Save & Connect</button>
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1061,13 +1062,9 @@
                                     <button onclick="supabaseSignOut()" class="px-3 py-1.5 bg-slate-200 dark:bg-slate-600 rounded-lg text-xs font-semibold">Sign Out</button>
                                 </div>
                                 <div id="supabase-cloud-status" role="status" aria-live="polite" class="text-xs text-slate-600 dark:text-slate-300">Not connected.</div>
-                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                    <button onclick="createCloudBackup()" class="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold">Back Up Now</button>
-                                    <button onclick="restoreLatestCloudBackup()" class="w-full py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold">Restore Latest Cloud Backup</button>
-                                </div>
                                 <button onclick="openHostedInventoryApp()" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold">Open Web App</button>
                                 <div id="supabase-app-link-container" class="hidden text-xs"><span class="font-semibold">App link: </span><a id="supabase-app-link" href="#" target="_blank" rel="noopener noreferrer" class="break-all text-sky-700 underline">Open inventory app</a></div>
-                                <p class="text-[10px] text-slate-500">The app is hosted on GitHub Pages. Supabase stores private inventory backups; Storage cannot run HTML pages. Automatic cloud snapshots keep the newest 20 versions.</p>
+                                <p class="text-[10px] text-slate-500">Use the Supabase project URL, public anon/publishable key, and workspace UUID created by the setup SQL. Never put a service-role key in this page. Each team member must be added to inventory_members by an administrator.</p>
                             </div>
 
                             <div class="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg space-y-2 border border-slate-200 dark:border-slate-600">
@@ -1645,7 +1642,8 @@
             backupFreq: "post",
             backupPath: "C:\\ERP_Backups\\RawMaterials\\",
             supabaseUrl: "https://kfvaetmfherzzkimbtoz.supabase.co",
-            supabaseAnonKey: "sb_publishable_-scsw88Xs1Mg1Ktdk09V2A_cIIV0Jdd"
+            supabaseAnonKey: "sb_publishable_-scsw88Xs1Mg1Ktdk09V2A_cIIV0Jdd",
+            supabaseWorkspaceId: "20a727a3-8091-4a08-b1e6-5bff1a773ecc"
         };
 
         // Master Data Storage Arrays
@@ -1669,6 +1667,18 @@
         let supabaseApplyingRemote = false;
         let supabaseLocalDirty = false;
         let supabaseLocalChangeVersion = 0;
+        let supabaseStateVersion = 0;
+        let supabaseLastSyncedSnapshot = null;
+        let supabaseSyncInFlight = false;
+        let supabaseSyncQueued = false;
+        let supabasePendingRemote = null;
+        let supabaseReconnectTimer = null;
+        let supabasePollTimer = null;
+        let supabaseReconnectAttempt = 0;
+        let supabaseReadyUserId = null;
+        let supabaseAccessGranted = false;
+        let supabaseClientId = sessionStorage.getItem("erp_supabaseClientId") || crypto.randomUUID();
+        sessionStorage.setItem("erp_supabaseClientId", supabaseClientId);
 
         // Global Active Filters
         let activeTab = 'dashboard';
@@ -1753,7 +1763,7 @@
             }
         }
 
-        function makeBackupSnapshot(){const config={...companyConfig};delete config.supabaseUrl;delete config.supabaseAnonKey;return {companyConfig:config,dbItems,dbCategories,dbUoms,dbVendors,dbVouchersGrn,dbVouchersIssue,dbVouchersAdj,dbWorkingLog,dbTrashBin,backupVersion:1};}
+        function makeBackupSnapshot(){const config={...companyConfig};delete config.supabaseUrl;delete config.supabaseAnonKey;delete config.supabaseWorkspaceId;return {companyConfig:config,dbItems,dbCategories,dbUoms,dbVendors,dbVouchersGrn,dbVouchersIssue,dbVouchersAdj,dbWorkingLog,dbTrashBin,backupVersion:2};}
         function maybeRunScheduledBackup(){
             const freq=companyConfig.backupFreq||'post';if(!['daily','weekly'].includes(freq))return;
             const now=Date.now(),last=Number(localStorage.getItem('erp_lastLocalBackup')||0),interval=freq==='daily'?86400000:604800000;
@@ -1763,106 +1773,178 @@
         }
         function runVoucherAutoBackup(status){if(status==='Posted'&&(companyConfig.backupFreq||'post')==='post')downloadBackupJson();}
 
-        function setSupabaseStatus(message,isError=false){const el=document.getElementById('supabase-cloud-status');if(el){el.innerText=message;el.classList.toggle('text-rose-600',isError);el.classList.toggle('text-emerald-600',!isError);}}
+        function setSupabaseAccess(allowed){supabaseAccessGranted=!!allowed;const gate=document.getElementById('supabase-auth-gate');if(gate)gate.classList.toggle('hidden',!!allowed||activeTab==='settings');}
+        function clearLocalInventoryOnSignOut(){dbItems=[];dbCategories=[];dbUoms=[];dbVendors=[];dbVouchersGrn=[];dbVouchersIssue=[];dbVouchersAdj=[];dbWorkingLog=[];dbTrashBin=[];saveToLocalStorage();['erp_lastSyncedInventorySnapshot','erp_autoBackupSnapshot','erp_lastCloudBackupId','erp_cloudRestorePending'].forEach(k=>localStorage.removeItem(k));}
+        function setSupabaseStatus(message,isError=false){
+            const el=document.getElementById('supabase-cloud-status'),loginStatus=document.getElementById('supabase-login-status');
+            [el,loginStatus].filter(Boolean).forEach(node=>{node.innerText=message;node.classList.toggle('text-rose-600',!!isError);node.classList.toggle('text-emerald-600',!isError);});
+        }
+        function getSupabaseAuthFields(){
+            const gate=document.getElementById('supabase-auth-gate');
+            const useGate=gate&&!gate.classList.contains('hidden');
+            return {
+                email:document.getElementById(useGate?'supabase-login-email':'supabase-auth-email'),
+                password:document.getElementById(useGate?'supabase-login-password':'supabase-auth-password')
+            };
+        }
+        let supabaseLoginMode='signin';
+        function toggleSupabaseLoginMode(){
+            supabaseLoginMode=supabaseLoginMode==='signin'?'signup':'signin';
+            const signup=supabaseLoginMode==='signup';
+            document.getElementById('supabase-login-title').innerText=signup?'Create your workspace account':'Sign in to Raw Material Inventory';
+            document.getElementById('supabase-login-subtitle').innerText=signup?'Create an account, then ask your administrator to authorize it.':'Use your authorized workspace account to continue.';
+            document.getElementById('supabase-login-submit').innerText=signup?'Create Account':'Sign In';
+            document.getElementById('supabase-login-switch').innerText=signup?'Sign in instead':'Create an account instead';
+            document.getElementById('supabase-login-password').autocomplete=signup?'new-password':'current-password';
+        }
         function initializeSupabaseBackup(){
-            const url=companyConfig.supabaseUrl||'',key=companyConfig.supabaseAnonKey||'';
-            const urlInput=document.getElementById('supabase-project-url'),keyInput=document.getElementById('supabase-public-key');
-            if(urlInput)urlInput.value=url;if(keyInput)keyInput.value=key;
+            const url=companyConfig.supabaseUrl||'',key=companyConfig.supabaseAnonKey||'',workspace=companyConfig.supabaseWorkspaceId||'';
+            const urlInput=document.getElementById('supabase-project-url'),keyInput=document.getElementById('supabase-public-key'),workspaceInput=document.getElementById('supabase-workspace-id');
+            if(urlInput)urlInput.value=url;if(keyInput)keyInput.value=key;if(workspaceInput)workspaceInput.value=workspace;
             refreshHostedInventoryAppLink();
-            if(!url||!key){setSupabaseStatus('Add your Supabase project URL and public key, then choose Save & Connect.');return;}
-            if(!window.supabase||typeof window.supabase.createClient!=='function'){setSupabaseStatus('Supabase library did not load. Check your internet connection and refresh.',true);return;}
+            if(!url||!key||!workspace){setSupabaseStatus('Enter the Supabase project URL, public key, and shared workspace UUID.');return;}
+            if(!window.supabase||typeof window.supabase.createClient!=='function'){setSupabaseStatus('Supabase library did not load. Check the connection and refresh.',true);return;}
             try{
+                stopCloudLiveSync();
                 if(supabaseClient&&supabaseClient.authSubscription)supabaseClient.authSubscription.unsubscribe();
                 supabaseClient=window.supabase.createClient(url,key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
-                const listener=supabaseClient.auth.onAuthStateChange((_event,session)=>{supabaseUser=session?.user||null;setSupabaseStatus(supabaseUser?`Signed in as ${supabaseUser.email}. Checking shared inventory…`:'Connected to Supabase. Sign in to sync data across devices.');if(supabaseUser)setTimeout(updateCloudBackupStatus,0);else stopCloudLiveSync();});
+                const listener=supabaseClient.auth.onAuthStateChange((_event,session)=>setTimeout(()=>handleSupabaseSession(session?.user||null),0));
                 supabaseClient.authSubscription=listener.data.subscription;
-                supabaseClient.auth.getSession().then(({data,error})=>{if(error)throw error;supabaseUser=data.session?.user||null;setSupabaseStatus(supabaseUser?`Signed in as ${supabaseUser.email}. Checking shared inventory…`:'Connected to Supabase. Sign in to sync data across devices.');if(supabaseUser)updateCloudBackupStatus();else stopCloudLiveSync();}).catch(e=>setSupabaseStatus('Could not read the Supabase session: '+e.message,true));
+                supabaseClient.auth.getSession().then(({data,error})=>{if(error)throw error;handleSupabaseSession(data.session?.user||null);}).catch(e=>setSupabaseStatus('Could not read the Supabase session: '+e.message,true));
             }catch(e){supabaseClient=null;setSupabaseStatus('Supabase connection failed: '+e.message,true);}
         }
+        async function handleSupabaseSession(user){
+            const previouslySignedIn=!!supabaseUser;
+            supabaseUser=user||null;
+            if(!supabaseUser){supabaseReadyUserId=null;setSupabaseAccess(false);if(previouslySignedIn)clearLocalInventoryOnSignOut();stopCloudLiveSync();setSupabaseStatus(supabaseClient?'Connected to Supabase. Sign in with a workspace member account.':'Not connected.');return;}
+            if(supabaseReadyUserId===supabaseUser.id)return;
+            supabaseReadyUserId=supabaseUser.id;supabaseStateVersion=0;supabaseLastSyncedSnapshot=null;supabaseLocalDirty=false;
+            setSupabaseStatus('Signed in as '+(supabaseUser.email||'authorized user')+'. Loading shared inventory…');
+            await loadSharedInventory();
+        }
         function saveSupabaseSettings(){
-            const url=document.getElementById('supabase-project-url').value.trim().replace(/\/$/,''),key=document.getElementById('supabase-public-key').value.trim();
-            try{if(!/^https:\/\/[\w.-]+\.supabase\.co$/.test(url))throw Error('Enter the project URL shown in Supabase.');if(!key)throw Error('Enter the public anon/publishable key.');if(supabaseSyncTimer){clearTimeout(supabaseSyncTimer);supabaseSyncTimer=null;}stopCloudLiveSync();supabaseClient=null;supabaseUser=null;companyConfig.supabaseUrl=url;companyConfig.supabaseAnonKey=key;saveToLocalStorage();initializeSupabaseBackup();showToast('Supabase settings saved.');}
+            const url=document.getElementById('supabase-project-url').value.trim().replace(/\/$/,''),key=document.getElementById('supabase-public-key').value.trim(),workspace=document.getElementById('supabase-workspace-id').value.trim();
+            try{if(!/^https:\/\/[\w.-]+\.supabase\.co$/.test(url))throw Error('Enter the project URL shown in Supabase.');if(!key)throw Error('Enter the public anon/publishable key.');if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(workspace))throw Error('Enter the workspace UUID from the setup SQL.');stopCloudLiveSync();supabaseClient=null;supabaseUser=null;supabaseReadyUserId=null;companyConfig.supabaseUrl=url;companyConfig.supabaseAnonKey=key;companyConfig.supabaseWorkspaceId=workspace;saveToLocalStorage();initializeSupabaseBackup();showToast('Supabase workspace settings saved.');}
             catch(e){setSupabaseStatus(e.message,true);}
         }
-        async function supabaseSignUp(){if(!supabaseClient)return setSupabaseStatus('Save your Supabase project settings first.',true);const email=document.getElementById('supabase-auth-email').value.trim(),password=document.getElementById('supabase-auth-password').value;if(!email||!password)return setSupabaseStatus('Enter your email and password.',true);const {data,error}=await supabaseClient.auth.signUp({email,password});if(error)return setSupabaseStatus('Account creation failed: '+error.message,true);document.getElementById('supabase-auth-password').value='';if(data.session){supabaseUser=data.user;setSupabaseStatus('Account created and signed in.');await createCloudBackup();}else setSupabaseStatus('Account created. Check your email to confirm, then sign in.');}
-        async function supabaseSignIn(){if(!supabaseClient)return setSupabaseStatus('Save your Supabase project settings first.',true);const email=document.getElementById('supabase-auth-email').value.trim(),password=document.getElementById('supabase-auth-password').value;if(!email||!password)return setSupabaseStatus('Enter your email and password.',true);const {data,error}=await supabaseClient.auth.signInWithPassword({email,password});if(error)return setSupabaseStatus('Sign-in failed: '+error.message,true);supabaseUser=data.user;document.getElementById('supabase-auth-password').value='';await updateCloudBackupStatus();}
-        async function supabaseSignOut(){if(!supabaseClient)return;const {error}=await supabaseClient.auth.signOut();if(error)setSupabaseStatus('Sign-out failed: '+error.message,true);else{supabaseUser=null;stopCloudLiveSync();document.getElementById('supabase-auth-password').value='';setSupabaseStatus('Signed out. Local inventory data is unchanged.');}}
-        function queueSupabaseBackup(){if(!supabaseClient||!supabaseUser)return;if(supabaseSyncTimer)clearTimeout(supabaseSyncTimer);supabaseSyncTimer=setTimeout(()=>{supabaseSyncTimer=null;uploadSupabaseBackup('automatic');},2500);}
-        async function uploadSupabaseBackup(source){
-            if(!supabaseClient||!supabaseUser)return setSupabaseStatus('Connect and sign in before creating a cloud backup.',true);
-            const changeVersion=supabaseLocalChangeVersion;setSupabaseStatus('Syncing inventory changes…');
-            try{
-                const {data:saved,error}=await supabaseClient.from('inventory_backups').insert({owner_id:supabaseUser.id,source,backup_data:makeBackupSnapshot()}).select('id,created_at').single();if(error)throw error;
-                if(saved){supabaseLatestBackupId=saved.id;supabaseLatestBackupAt=Date.parse(saved.created_at)||Date.now();localStorage.setItem('erp_lastCloudBackupId',saved.id);}
-                const {data:rows,error:listError}=await supabaseClient.from('inventory_backups').select('id').eq('owner_id',supabaseUser.id).order('created_at',{ascending:false}).limit(100);if(listError)throw listError;
-                const old=(rows||[]).slice(20).map(x=>x.id);if(old.length){const {error:deleteError}=await supabaseClient.from('inventory_backups').delete().eq('owner_id',supabaseUser.id).in('id',old);if(deleteError)throw deleteError;}
-                if(source==='initial')localStorage.removeItem('erp_cloudRestorePending');
-                if(changeVersion===supabaseLocalChangeVersion)supabaseLocalDirty=false;
-                setSupabaseStatus(`All signed-in devices are syncing. Latest save: ${new Date(supabaseLatestBackupAt||Date.now()).toLocaleTimeString()}.`);
-            }catch(e){console.error('Supabase backup failed',e);setSupabaseStatus('Cloud backup failed: '+e.message,true);}
+        async function supabaseSignUp(){if(!supabaseClient)return setSupabaseStatus('Supabase is not connected. Ask an administrator to configure the project first.',true);const fields=getSupabaseAuthFields(),email=fields.email?.value.trim(),password=fields.password?.value;if(!email||!password)return setSupabaseStatus('Enter your email and password.',true);const {data,error}=await supabaseClient.auth.signUp({email,password});if(error)return setSupabaseStatus('Account creation failed: '+error.message,true);if(fields.password)fields.password.value='';if(data.session){await handleSupabaseSession(data.user);}else setSupabaseStatus('Account created. Confirm the email, then ask a workspace administrator to authorize it before signing in.');}
+        async function supabaseSignIn(){if(!supabaseClient)return setSupabaseStatus('Supabase is not connected. Ask an administrator to configure the project first.',true);const fields=getSupabaseAuthFields(),email=fields.email?.value.trim(),password=fields.password?.value;if(!email||!password)return setSupabaseStatus('Enter your email and password.',true);const {data,error}=await supabaseClient.auth.signInWithPassword({email,password});if(error)return setSupabaseStatus('Sign-in failed: '+error.message,true);if(fields.password)fields.password.value='';await handleSupabaseSession(data.user);}
+        async function submitSupabaseLogin(){return supabaseLoginMode==='signup'?supabaseSignUp():supabaseSignIn();}
+        async function supabaseSignOut(){if(!supabaseClient)return;const {error}=await supabaseClient.auth.signOut();if(error)setSupabaseStatus('Sign-out failed: '+error.message,true);else{const fields=getSupabaseAuthFields();if(fields.password)fields.password.value='';supabaseReadyUserId=null;supabaseUser=null;setSupabaseAccess(false);clearLocalInventoryOnSignOut();stopCloudLiveSync();switchTab('dashboard');setSupabaseStatus('Signed out.');}}
+        function queueSupabaseBackup(){if(!supabaseClient||!supabaseUser||!companyConfig.supabaseWorkspaceId)return;if(supabaseSyncTimer)clearTimeout(supabaseSyncTimer);supabaseSyncTimer=setTimeout(()=>{supabaseSyncTimer=null;syncSharedInventory(false);},700);}
+        function stableBackupJson(value){if(Array.isArray(value))return '['+value.map(stableBackupJson).join(',')+']';if(value&&typeof value==='object')return '{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+stableBackupJson(value[k])).join(',')+'}';return JSON.stringify(value);}
+        function mergeInventoryValue(base,local,remote,path,conflicts){
+            if(base===undefined){if(Array.isArray(local)||Array.isArray(remote))base=[];else if((local&&typeof local==='object')||(remote&&typeof remote==='object'))base={};}
+            const b=stableBackupJson(base),l=stableBackupJson(local),r=stableBackupJson(remote);
+            if(l===b)return remote;if(r===b)return local;if(l===r)return local;
+            if(Array.isArray(base)&&Array.isArray(local)&&Array.isArray(remote)&&[...base,...local,...remote].every(x=>x&&typeof x==='object'&&!Array.isArray(x))){
+                const key=x=>x.id!==undefined?String(x.id):'row:'+stableBackupJson(x);const bm=new Map(base.map(x=>[key(x),x])),lm=new Map(local.map(x=>[key(x),x])),rm=new Map(remote.map(x=>[key(x),x])),out=[];
+                for(const id of new Set([...bm.keys(),...lm.keys(),...rm.keys()])){const bh=bm.has(id),lh=lm.has(id),rh=rm.has(id),bv=bm.get(id),lv=lm.get(id),rv=rm.get(id);if(!lh&&!rh)continue;if(!lh){if(!bh){out.push(rv);continue;}if(stableBackupJson(rv)===stableBackupJson(bv))continue;conflicts.push(path+'['+id+'] (delete/update)');out.push(rv);continue;}if(!rh){if(!bh){out.push(lv);continue;}if(stableBackupJson(lv)===stableBackupJson(bv))continue;conflicts.push(path+'['+id+'] (update/delete)');out.push(lv);continue;}const value=mergeInventoryValue(bv,lv,rv,path+'['+id+']',conflicts);if(value!==undefined)out.push(value);}return out;
+            }
+            if(base&&local&&remote&&typeof base==='object'&&typeof local==='object'&&typeof remote==='object'&&!Array.isArray(base)&&!Array.isArray(local)&&!Array.isArray(remote)){
+                const out={};for(const key of new Set([...Object.keys(base),...Object.keys(local),...Object.keys(remote)])){const value=mergeInventoryValue(base[key],local[key],remote[key],path+'.'+key,conflicts);if(value!==undefined)out[key]=value;}return out;
+            }
+            conflicts.push(path);return local;
         }
-        function createCloudBackup(){return uploadSupabaseBackup('manual');}
+        async function fetchSharedInventory(){const {data,error}=await supabaseClient.from('inventory_state').select('workspace_id,version,updated_at,payload,client_id').eq('workspace_id',companyConfig.supabaseWorkspaceId).maybeSingle();if(error)throw error;return data;}
+        async function loadSharedInventory(){
+            if(!supabaseClient||!supabaseUser)return;
+            try{
+                let row=await fetchSharedInventory();
+                if(!row){
+                    // Migrate an existing private cloud snapshot when one exists for this account.
+                    const legacy=await supabaseClient.from('inventory_backups').select('backup_data,created_at').eq('owner_id',supabaseUser.id).order('created_at',{ascending:false}).limit(1).maybeSingle();
+                    if(legacy.error)throw legacy.error;
+                    if(Array.isArray(legacy.data?.backup_data?.dbItems))applyBackupData(legacy.data.backup_data);
+                    supabaseStateVersion=0;supabaseLastSyncedSnapshot=null;supabaseLocalDirty=true;
+                    await syncSharedInventory(true);
+                    startCloudLiveSync();return;
+                }
+                if(!Array.isArray(row.payload?.dbItems))throw Error('The shared inventory row has invalid data.');
+                const baseRaw=localStorage.getItem('erp_lastSyncedInventorySnapshot');
+                let base=null;try{base=baseRaw?JSON.parse(baseRaw):null;}catch(_e){}
+                if(!base){const previous=await supabaseClient.from('inventory_backups').select('backup_data').eq('owner_id',supabaseUser.id).order('created_at',{ascending:false}).limit(1).maybeSingle();if(previous.error)throw previous.error;if(Array.isArray(previous.data?.backup_data?.dbItems))base=previous.data.backup_data;}
+                const local=makeBackupSnapshot();
+                if(base&&stableBackupJson(local)!==stableBackupJson(base)){
+                    const conflicts=[];const merged=mergeInventoryValue(base,local,row.payload,'inventory',conflicts);
+                    supabaseApplyingRemote=true;try{applyBackupData(merged);}finally{supabaseApplyingRemote=false;}
+                    supabaseLastSyncedSnapshot=row.payload;supabaseStateVersion=Number(row.version)||0;supabaseLocalDirty=true;
+                    setSupabaseStatus(conflicts.length?'Shared data loaded; simultaneous edits to '+conflicts.length+' field(s) kept this device’s value and are being synced.':'Reconciled offline edits with the shared inventory.');
+                    await syncSharedInventory(true);
+                }else{
+                    supabaseApplyingRemote=true;try{applyBackupData(row.payload);}finally{supabaseApplyingRemote=false;}
+                    supabaseStateVersion=Number(row.version)||0;supabaseLastSyncedSnapshot=row.payload;supabaseLocalDirty=false;
+                    localStorage.setItem('erp_lastSyncedInventorySnapshot',JSON.stringify(row.payload));
+                    setSupabaseStatus('Shared inventory loaded. Connecting live updates…');setSupabaseAccess(true);
+                }
+                startCloudLiveSync();setSupabaseAccess(true);refreshActiveView();
+            }catch(e){supabaseReadyUserId=null;setSupabaseStatus('Could not load shared inventory: '+e.message+' Check workspace membership and run the SQL setup.',true);}
+        }
+        async function syncSharedInventory(force){
+            if(!supabaseClient||!supabaseUser||!companyConfig.supabaseWorkspaceId)return;
+            if(supabaseSyncInFlight){supabaseSyncQueued=true;return;}
+            if(!force&&!supabaseLocalDirty)return;
+            supabaseSyncInFlight=true;const versionAtStart=supabaseLocalChangeVersion,snapshot=makeBackupSnapshot();
+            setSupabaseStatus('Saving inventory to Supabase…');
+            try{
+                const {data,error}=await supabaseClient.rpc('save_inventory_state',{p_workspace_id:companyConfig.supabaseWorkspaceId,p_expected_version:supabaseStateVersion,p_payload:snapshot,p_client_id:supabaseClientId});
+                if(error){if(error.code==='40001'||String(error.message||'').includes('inventory_version_conflict')){const latest=await fetchSharedInventory();if(!latest)throw error;const conflicts=[];const base=supabaseLastSyncedSnapshot||{};const local=makeBackupSnapshot();const merged=mergeInventoryValue(base,local,latest.payload,'inventory',conflicts);supabaseStateVersion=Number(latest.version)||0;supabaseLastSyncedSnapshot=latest.payload;supabaseApplyingRemote=true;try{applyBackupData(merged);}finally{supabaseApplyingRemote=false;}supabaseLocalDirty=true;supabaseSyncQueued=true;setSupabaseStatus(conflicts.length?'Concurrent edits merged; same-field edits kept this device’s value. Saving the merged state…':'Another device saved at the same time; both devices’ changes are being merged…');}
+                    else throw error;
+                }else{
+                    const saved=Array.isArray(data)?data[0]:data;if(saved&&saved.version!==undefined){supabaseStateVersion=Number(saved.version);supabaseLatestBackupId=String(saved.version);supabaseLatestBackupAt=Date.parse(saved.updated_at)||Date.now();}
+                    supabaseLastSyncedSnapshot=snapshot;localStorage.setItem('erp_lastSyncedInventorySnapshot',JSON.stringify(snapshot));
+                    if(versionAtStart===supabaseLocalChangeVersion)supabaseLocalDirty=false;else supabaseSyncQueued=true;
+                    setSupabaseStatus('Connected · all authorized devices share this inventory. Last saved '+new Date(supabaseLatestBackupAt||Date.now()).toLocaleTimeString()+'.');setSupabaseAccess(true);
+                }
+            }catch(e){console.error('Supabase inventory save failed',e);setSupabaseStatus('Inventory save failed: '+e.message+'. Your local copy is retained; it will retry when the connection returns.',true);supabaseLocalDirty=true;}
+            finally{supabaseSyncInFlight=false;if(supabaseSyncQueued){supabaseSyncQueued=false;setTimeout(()=>syncSharedInventory(true),250);}}
+        }
+        async function createCloudBackup(){
+            if(!supabaseClient||!supabaseUser)return setSupabaseStatus('Connect and sign in before creating a cloud backup.',true);
+            await syncSharedInventory(true);
+            try{const {error}=await supabaseClient.from('inventory_backups').insert({owner_id:supabaseUser.id,source:'manual',backup_data:makeBackupSnapshot()});if(error)throw error;setSupabaseStatus('Shared inventory saved and a private recovery backup was created.');showToast('Cloud backup created.');}
+            catch(e){setSupabaseStatus('Inventory is shared, but the private backup failed: '+e.message,true);}
+        }
         function getHostedInventoryAppUrl(){return 'https://dskafaq-pixel.github.io/raw-material-inventory-app/raw_material_inventory_management_system.html';}
         function refreshHostedInventoryAppLink(){const box=document.getElementById('supabase-app-link-container'),link=document.getElementById('supabase-app-link');if(!box||!link)return;const url=getHostedInventoryAppUrl();link.href=url;link.innerText=url;box.classList.remove('hidden');}
         function openHostedInventoryApp(){window.open(getHostedInventoryAppUrl(),'_blank','noopener');}
-        async function updateCloudBackupStatus(){
-            if(!supabaseClient||!supabaseUser)return;
-            const userId=supabaseUser.id;
-            const {data,error}=await supabaseClient.from('inventory_backups').select('id,backup_data,created_at').eq('owner_id',userId).order('created_at',{ascending:false}).limit(1).maybeSingle();
-            if(error){setSupabaseStatus('Cloud backup table is not ready: '+error.message,true);return;}
-            if(!data){setSupabaseStatus(`Signed in as ${supabaseUser.email}. Creating the shared inventory…`);if(supabaseInitialBackupUserId!==userId){supabaseInitialBackupUserId=userId;await uploadSupabaseBackup('initial');}if(supabaseLatestBackupId)startCloudLiveSync();return;}
-            supabaseLatestBackupId=data.id;supabaseLatestBackupAt=Date.parse(data.created_at)||0;
-            if(localStorage.getItem('erp_cloudRestorePending')==='1'){
-                if(!Array.isArray(data.backup_data?.dbItems)){setSupabaseStatus('The cloud backup is invalid; your local data was left unchanged.',true);return;}
-                supabaseApplyingRemote=true;
-                try{applyBackupData(data.backup_data);localStorage.setItem('erp_lastCloudBackupId',data.id);localStorage.removeItem('erp_cloudRestorePending');}
-                finally{supabaseApplyingRemote=false;}
-                setSupabaseStatus('Shared inventory loaded on this device.');location.reload();return;
-            }
-            const localSnapshot=stableBackupJson(makeBackupSnapshot()),cloudSnapshot=stableBackupJson(data.backup_data);
-            localStorage.setItem('erp_lastCloudBackupId',data.id);
-            if(localSnapshot!==cloudSnapshot)setSupabaseStatus('This device has inventory different from the cloud copy. Choose Back Up Now to share this copy, or Restore Latest Cloud Backup to load the shared copy.',true);
-            else setSupabaseStatus(`Signed in as ${supabaseUser.email}. Live sync is on; cloud changes appear automatically.`);
-            startCloudLiveSync();
-        }
-        function stableBackupJson(value){if(Array.isArray(value))return '['+value.map(stableBackupJson).join(',')+']';if(value&&typeof value==='object')return '{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+stableBackupJson(value[k])).join(',')+'}';return JSON.stringify(value);}
         function startCloudLiveSync(){
-            if(!supabaseClient||!supabaseUser)return;
-            if(supabaseLivePollTimer)clearInterval(supabaseLivePollTimer);
-            supabaseLivePollTimer=setInterval(pollLatestCloudBackup,4000);
+            if(!supabaseClient||!supabaseUser||!companyConfig.supabaseWorkspaceId)return;
             if(supabaseLiveChannel){supabaseClient.removeChannel(supabaseLiveChannel);supabaseLiveChannel=null;}
-            const userId=supabaseUser.id;
-            supabaseLiveChannel=supabaseClient.channel('inventory-live-'+userId).on('postgres_changes',{event:'INSERT',schema:'public',table:'inventory_backups',filter:'owner_id=eq.'+userId},payload=>receiveCloudBackup(payload.new)).subscribe(status=>{
-                if(status==='SUBSCRIBED')setSupabaseStatus('Live sync is on. Changes are shared with your signed-in devices.');
-                else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT')setSupabaseStatus('Live connection is reconnecting; automatic cloud checks are still running.',true);
+            if(supabasePollTimer)clearInterval(supabasePollTimer);
+            supabasePollTimer=setInterval(pollSharedInventory,15000);
+            const workspace=companyConfig.supabaseWorkspaceId;
+            supabaseLiveChannel=supabaseClient.channel('inventory-workspace-'+workspace).on('postgres_changes',{event:'*',schema:'public',table:'inventory_state',filter:'workspace_id=eq.'+workspace},payload=>receiveSharedInventory(payload.new)).subscribe(status=>{
+                if(status==='SUBSCRIBED'){supabaseReconnectAttempt=0;setSupabaseStatus('Live sync connected. Every authorized device updates automatically.');}
+                else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED'){setSupabaseStatus('Live connection interrupted. Reconnecting; periodic sync checks remain active.',true);scheduleRealtimeReconnect();}
             });
         }
-        function stopCloudLiveSync(){if(supabaseLivePollTimer){clearInterval(supabaseLivePollTimer);supabaseLivePollTimer=null;}if(supabaseClient&&supabaseLiveChannel)supabaseClient.removeChannel(supabaseLiveChannel);supabaseLiveChannel=null;supabaseLatestBackupId=null;supabaseLatestBackupAt=0;}
-        async function pollLatestCloudBackup(){
-            if(!supabaseClient||!supabaseUser)return;
-            try{const {data,error}=await supabaseClient.from('inventory_backups').select('id,created_at').eq('owner_id',supabaseUser.id).order('created_at',{ascending:false}).limit(1).maybeSingle();if(error)throw error;if(data&&data.id!==supabaseLatestBackupId){const {data:row,error:rowError}=await supabaseClient.from('inventory_backups').select('id,backup_data,created_at').eq('owner_id',supabaseUser.id).eq('id',data.id).maybeSingle();if(rowError)throw rowError;if(row)receiveCloudBackup(row);}}
-            catch(e){console.warn('Live inventory check failed:',e);}
+        function scheduleRealtimeReconnect(){if(supabaseReconnectTimer||!supabaseClient||!supabaseUser)return;const delay=Math.min(30000,1000*Math.pow(2,supabaseReconnectAttempt++));supabaseReconnectTimer=setTimeout(()=>{supabaseReconnectTimer=null;startCloudLiveSync();},delay);}
+        function stopCloudLiveSync(){if(supabaseSyncTimer){clearTimeout(supabaseSyncTimer);supabaseSyncTimer=null;}if(supabasePollTimer){clearInterval(supabasePollTimer);supabasePollTimer=null;}if(supabaseReconnectTimer){clearTimeout(supabaseReconnectTimer);supabaseReconnectTimer=null;}if(supabaseClient&&supabaseLiveChannel)supabaseClient.removeChannel(supabaseLiveChannel);supabaseLiveChannel=null;supabaseLatestBackupId=null;supabaseLatestBackupAt=0;}
+        async function pollSharedInventory(){try{const row=await fetchSharedInventory();if(row&&Number(row.version)>supabaseStateVersion)receiveSharedInventory(row);}catch(e){console.warn('Shared inventory check failed:',e);setSupabaseStatus('Supabase temporarily unavailable. Local changes are retained and will retry.',true);}}
+        function receiveSharedInventory(row){
+            if(!row||!row.payload||Number(row.version)<=supabaseStateVersion)return;
+            if(row.client_id===supabaseClientId){supabaseStateVersion=Number(row.version);supabaseLastSyncedSnapshot=row.payload;localStorage.setItem('erp_lastSyncedInventorySnapshot',JSON.stringify(row.payload));return;}
+            if(document.querySelector('[id^="modal-"]:not(.hidden)')){supabasePendingRemote=row;setSupabaseStatus('Another device updated the inventory. This form stays open; changes will apply when it closes.');return;}
+            const local=makeBackupSnapshot();let next=row.payload;
+            if(supabaseLocalDirty||supabaseSyncTimer){const conflicts=[];next=mergeInventoryValue(supabaseLastSyncedSnapshot||{},local,row.payload,'inventory',conflicts);supabaseLocalDirty=true;supabaseStateVersion=Number(row.version);supabaseLastSyncedSnapshot=row.payload;supabaseApplyingRemote=true;try{applyBackupData(next);}finally{supabaseApplyingRemote=false;}setSupabaseStatus(conflicts.length?'Concurrent edits detected. Same-field edits on this device are retained and being synchronized.':'Changes from another device merged; saving combined inventory…');queueSupabaseBackup();}
+            else{supabaseStateVersion=Number(row.version);supabaseLastSyncedSnapshot=row.payload;supabaseApplyingRemote=true;try{applyBackupData(next);}finally{supabaseApplyingRemote=false;}localStorage.setItem('erp_lastSyncedInventorySnapshot',JSON.stringify(row.payload));setSupabaseStatus('Inventory updated from another device.');}
+            refreshActiveView();
         }
-        function receiveCloudBackup(row){
-            if(!row||!row.id||row.id===supabaseLatestBackupId||!Array.isArray(row.backup_data?.dbItems))return;
-            const rowTime=Date.parse(row.created_at)||0;if(supabaseLatestBackupAt&&rowTime<supabaseLatestBackupAt)return;
-            if(supabaseLocalDirty||supabaseSyncTimer){setSupabaseStatus('A cloud update arrived while this device has edits. Saving your changes first…');return;}
-            if(document.querySelector('[id^="modal-"]:not(.hidden)')){setSupabaseStatus('A cloud update is waiting. Finish the open form to apply it.');return;}
-            supabaseLatestBackupId=row.id;supabaseLatestBackupAt=rowTime;supabaseApplyingRemote=true;
-            try{applyBackupData(row.backup_data);localStorage.setItem('erp_lastCloudBackupId',row.id);setSupabaseStatus(`Inventory updated from another device at ${new Date(row.created_at).toLocaleTimeString()}.`);}
-            finally{supabaseApplyingRemote=false;}
-            setTimeout(()=>location.reload(),150);
+        function refreshActiveView(){try{if(typeof switchTab==='function')switchTab(activeTab);if(document.getElementById('global-search-input')?.value)renderGlobalSearch();}catch(e){console.warn('View refresh failed:',e);}}
+        async function restoreLatestCloudBackup(){
+            if(!supabaseClient||!supabaseUser)return setSupabaseStatus('Connect and sign in before restoring a cloud backup.',true);
+            if(!confirm('Restore your latest private recovery backup to the shared inventory? This replaces the current shared data.'))return;
+            try{const {data,error}=await supabaseClient.from('inventory_backups').select('backup_data,created_at').eq('owner_id',supabaseUser.id).order('created_at',{ascending:false}).limit(1).maybeSingle();if(error)throw error;if(!data)throw Error('No private cloud backup is available for this account.');if(!Array.isArray(data.backup_data?.dbItems))throw Error('The saved backup is invalid.');supabaseApplyingRemote=true;try{applyBackupData(data.backup_data);}finally{supabaseApplyingRemote=false;}supabaseLocalDirty=true;supabaseLocalChangeVersion++;await syncSharedInventory(true);refreshActiveView();setSupabaseStatus('Recovery backup restored to the shared inventory.');}
+            catch(e){setSupabaseStatus('Cloud restore failed: '+e.message,true);}
         }
-        async function restoreLatestCloudBackup(){if(!supabaseClient||!supabaseUser)return setSupabaseStatus('Connect and sign in before restoring a cloud backup.',true);if(!confirm('Restore the latest Supabase backup? This replaces the current inventory data.'))return;try{setSupabaseStatus('Loading your latest cloud backup…');const {data,error}=await supabaseClient.from('inventory_backups').select('id,backup_data,created_at').eq('owner_id',supabaseUser.id).order('created_at',{ascending:false}).limit(1).maybeSingle();if(error)throw error;if(!data)throw Error('No cloud backup is available for this account.');if(!Array.isArray(data.backup_data?.dbItems))throw Error('The saved cloud backup is invalid.');supabaseApplyingRemote=true;try{applyBackupData(data.backup_data);supabaseLatestBackupId=data.id;supabaseLatestBackupAt=Date.parse(data.created_at)||Date.now();localStorage.setItem('erp_lastCloudBackupId',data.id);}finally{supabaseApplyingRemote=false;}location.reload();}catch(e){setSupabaseStatus('Cloud restore failed: '+e.message,true);}}
-        function restoreLastLocalSnapshot(){const raw=localStorage.getItem('erp_autoBackupSnapshot');if(!raw)return showToast('No automatic local snapshot is available yet.','error');if(!confirm('Restore the last automatic snapshot? This replaces the current inventory data.'))return;try{const d=JSON.parse(raw);if(!Array.isArray(d.dbItems))throw Error('Snapshot does not contain item data');applyBackupData(d);location.reload();}catch(e){showToast('The local snapshot is invalid: '+e.message,'error');}}
+        async function restoreLastLocalSnapshot(){const raw=localStorage.getItem('erp_autoBackupSnapshot');if(!raw)return showToast('No automatic local snapshot is available yet.','error');if(!confirm('Restore the last automatic snapshot? This replaces the current inventory data.'))return;try{const d=JSON.parse(raw);if(!Array.isArray(d.dbItems))throw Error('Snapshot does not contain item data');applyBackupData(d);if(supabaseUser){supabaseLocalDirty=true;supabaseLocalChangeVersion++;await syncSharedInventory(true);}refreshActiveView();showToast('Local snapshot restored.');}catch(e){showToast('The local snapshot is invalid: '+e.message,'error');}}
         function applyBackupData(d){if(Array.isArray(d.dbItems))dbItems=d.dbItems;if(Array.isArray(d.dbCategories))dbCategories=d.dbCategories;if(Array.isArray(d.dbUoms))dbUoms=d.dbUoms;if(Array.isArray(d.dbVendors))dbVendors=d.dbVendors;if(Array.isArray(d.dbVouchersGrn))dbVouchersGrn=d.dbVouchersGrn;if(Array.isArray(d.dbVouchersIssue))dbVouchersIssue=d.dbVouchersIssue;if(Array.isArray(d.dbVouchersAdj))dbVouchersAdj=d.dbVouchersAdj;if(Array.isArray(d.dbWorkingLog))dbWorkingLog=d.dbWorkingLog;if(Array.isArray(d.dbTrashBin))dbTrashBin=d.dbTrashBin;if(d.companyConfig)companyConfig={...companyConfig,...d.companyConfig};saveToLocalStorage();}
 
         function loadFromLocalStorage() {
             if (localStorage.getItem('erp_dbItems')) {
                 const read=(key,fallback)=>{try{const value=JSON.parse(localStorage.getItem('erp_'+key));return value===null?fallback:value;}catch(e){console.error('Invalid saved data:',key,e);return fallback;}};
                 companyConfig = {...companyConfig,...read('companyConfig',{})};
-                if(!companyConfig.supabaseUrl)companyConfig.supabaseUrl="https://kfvaetmfherzzkimbtoz.supabase.co";
-                if(!companyConfig.supabaseAnonKey)companyConfig.supabaseAnonKey="sb_publishable_-scsw88Xs1Mg1Ktdk09V2A_cIIV0Jdd";
                 dbItems = read('dbItems', []);
                 dbCategories = read('dbCategories', []);
                 dbUoms = read('dbUoms', []);
@@ -1966,6 +2048,8 @@
          *************************************************************/
         function switchTab(tabId) {
             activeTab = tabId;
+            if(tabId==='settings'){document.getElementById('supabase-auth-gate')?.classList.add('hidden');}
+            else if(!supabaseAccessGranted)document.getElementById('supabase-auth-gate')?.classList.remove('hidden');
             document.querySelectorAll('.view-tab').forEach(el => el.classList.add('hidden'));
             document.querySelectorAll('.nav-item').forEach(el => {
                 el.classList.remove('bg-brand-50', 'dark:bg-slate-700', 'text-brand-600', 'font-bold');
@@ -3314,7 +3398,7 @@
             saveToLocalStorage();addLog('Admin','Import','ITEMS',`Imported ${added} item records; skipped ${skipped}.`);closeModal('modal-import');renderItemsTable();renderDashboard();showToast(`${added} item(s) imported; ${skipped} skipped.`);
         }
         function readImportFile(file){if(!file)return;const reader=new FileReader();reader.onload=()=>{try{if(typeof XLSX==='undefined')throw Error('Excel library unavailable');const wb=XLSX.read(reader.result,{type:'array'});importRows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});document.getElementById('import-row-count').innerText=importRows.length;document.getElementById('import-preview-tbody').innerHTML=importRows.slice(0,20).map(r=>`<tr><td>${r.Code||r.code||''}</td><td>${r.Name||r.name||''}</td><td>${r.Category||r.category||''}</td><td>${r.UOM||r.uom||''}</td></tr>`).join('');document.getElementById('import-preview-area').classList.remove('hidden');}catch(e){showToast('Could not read this file: '+e.message,'error');}};reader.readAsArrayBuffer(file);}
-        function restoreBackupJson(){const f=document.getElementById('restore-json-file').files[0];if(!f)return showToast('Choose a JSON backup file first.','error');if(!confirm('Restore this backup? It replaces the current inventory data.'))return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d.dbItems))throw Error('Backup does not contain item data');applyBackupData(d);location.reload();}catch(e){showToast('Invalid backup file: '+e.message,'error');}};r.readAsText(f);}
+        function restoreBackupJson(){const f=document.getElementById('restore-json-file').files[0];if(!f)return showToast('Choose a JSON backup file first.','error');if(!confirm('Restore this backup? It replaces the current inventory data.'))return;const r=new FileReader();r.onload=async()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d.dbItems))throw Error('Backup does not contain item data');applyBackupData(d);if(supabaseUser){supabaseLocalDirty=true;supabaseLocalChangeVersion++;await syncSharedInventory(true);}refreshActiveView();showToast('Backup restored.');}catch(e){showToast('Invalid backup file: '+e.message,'error');}};r.readAsText(f);}
         function clearActivityLogs(){if(!confirm('Clear the activity history?'))return;dbWorkingLog=[];saveToLocalStorage();renderActivityLog();}
         function deleteUom(id){const u=dbUoms.find(x=>x.id===id);if(!u)return;if(dbItems.some(i=>i.uom===u.code))return showToast('This unit is used by an item and cannot be deleted.','error');dbUoms=dbUoms.filter(x=>x.id!==id);saveToLocalStorage();renderUomsTable();}
         function deleteVendor(id){const v=dbVendors.find(x=>x.id===id);if(!v)return;if(dbItems.some(i=>i.vendor===v.name)||dbVouchersGrn.some(x=>x.vendor===v.name))return showToast('This vendor is used by inventory records and cannot be deleted.','error');dbVendors=dbVendors.filter(x=>x.id!==id);saveToLocalStorage();renderVendorsTable();}
@@ -3528,7 +3612,7 @@
             let pass = prompt("DANGER: Enter 'DELETE' to reset all data back to factory sample defaults.");
             if (pass === 'DELETE') {
                 ['erp_companyConfig','erp_dbItems','erp_dbCategories','erp_dbUoms','erp_dbVendors','erp_dbVouchersGrn','erp_dbVouchersIssue','erp_dbVouchersAdj','erp_dbWorkingLog','erp_dbTrashBin','erp_autoBackupSnapshot','erp_lastLocalBackup'].forEach(k=>localStorage.removeItem(k));
-                companyConfig={name:'METALS & PACKAGING CORP',tagline:'Industrial Raw Material Stores & Logistics',taxId:'NTN-9842105-3',currency:'$',phone:'+1 (555) 019-2834',email:'stores@metalspack.com',address:'Plot 42, Industrial Zone 4, Steel Parkway',prefixGrn:'GRN-',prefixIssue:'ISS-',prefixAdj:'ADJ-',prefixItem:'RM-',backupFreq:'post',backupPath:'C:\\ERP_Backups\\RawMaterials\\'};
+                companyConfig={name:'METALS & PACKAGING CORP',tagline:'Industrial Raw Material Stores & Logistics',taxId:'NTN-9842105-3',currency:'$',phone:'+1 (555) 019-2834',email:'stores@metalspack.com',address:'Plot 42, Industrial Zone 4, Steel Parkway',prefixGrn:'GRN-',prefixIssue:'ISS-',prefixAdj:'ADJ-',prefixItem:'RM-',backupFreq:'post',backupPath:'C:\\ERP_Backups\\RawMaterials\\',supabaseUrl:companyConfig.supabaseUrl,supabaseAnonKey:companyConfig.supabaseAnonKey,supabaseWorkspaceId:companyConfig.supabaseWorkspaceId};
                 initSampleData();
                 switchTab('dashboard');
                 showToast("System reset to initial sample data.");
@@ -3604,6 +3688,7 @@
             document.getElementById('cfg-backup-path').value = companyConfig.backupPath || '';
             document.getElementById('supabase-project-url').value=companyConfig.supabaseUrl||'';
             document.getElementById('supabase-public-key').value=companyConfig.supabaseAnonKey||'';
+            document.getElementById('supabase-workspace-id').value=companyConfig.supabaseWorkspaceId||'';
             document.getElementById('header-company-name').innerText=companyConfig.name;
             document.getElementById('header-company-tagline').innerText=companyConfig.tagline;
         }
@@ -3658,6 +3743,228 @@
 
         function closeModal(id) {
             document.getElementById(id).classList.add('hidden');
+            if(supabasePendingRemote&&!document.querySelector('[id^="modal-"]:not(.hidden)')){const row=supabasePendingRemote;supabasePendingRemote=null;receiveSharedInventory(row);}
+        }
+
+        // INIT APP EVENT LISTENERS & SHORTCUTS
+        window.addEventListener('DOMContentLoaded', () => {
+            setSupabaseAccess(false);
+            loadFromLocalStorage();
+            initializeSupabaseBackup();
+            if(localStorage.getItem('erp_theme')==='dark')document.documentElement.classList.add('dark');
+            populateSelect('report-filter-category', dbCategories.map(c=>c.name));
+            populateSelect('report-filter-vendor', dbVendors.map(v=>v.name));
+            document.getElementById('import-excel-file').addEventListener('change',e=>readImportFile(e.target.files[0]));
+            document.getElementById('global-search-input').addEventListener('input',renderGlobalSearch);
+            document.getElementById('overview-search').addEventListener('input',renderOverviewTable);
+
+            // Theme Switcher
+            document.getElementById('theme-toggle-btn').addEventListener('click', () => {
+                document.documentElement.classList.toggle('dark');
+                localStorage.setItem('erp_theme',document.documentElement.classList.contains('dark')?'dark':'light');
+            });
+            document.getElementById('toggle-sidebar-btn').addEventListener('click',()=>document.getElementById('sidebar').classList.toggle('hidden'));
+
+            // Toggle Dropdowns
+            document.getElementById('notif-btn').addEventListener('click', () => {
+                document.getElementById('notif-dropdown').classList.toggle('hidden');
+            });
+
+            document.getElementById('quick-action-btn').addEventListener('click', () => {
+                document.getElementById('quick-action-menu').classList.toggle('hidden');
+            });
+
+            // Keyboard Shortcuts
+            window.addEventListener('keydown', (e) => {
+                if (e.ctrlKey && e.key === 'n') {
+                    e.preventDefault();
+                    switchTab('items');
+                    openItemModal();
+                } else if (e.ctrlKey && e.key === 'f') {
+                    e.preventDefault();
+                    document.getElementById('global-search-input').focus();
+                } else if (e.key === 'Escape') {
+                    document.querySelectorAll('.fixed.inset-0:not(#supabase-auth-gate)').forEach(m => m.classList.add('hidden'));
+                    if(!supabaseAccessGranted&&activeTab!=='settings')document.getElementById('supabase-auth-gate')?.classList.remove('hidden');
+                }
+            });
+
+            // Initial view load
+            switchTab('dashboard');
+        });
+
+        function renderGlobalSearch(){
+            const q=document.getElementById('global-search-input').value.trim().toLowerCase(), box=document.getElementById('global-search-results');
+            if(!q){box.classList.add('hidden');box.innerHTML='';return;}
+            const found=[];dbItems.filter(i=>`${i.code} ${i.name} ${i.category}`.toLowerCase().includes(q)).slice(0,8).forEach(i=>found.push({label:`${i.code} — ${i.name}`,action:`switchTab('items');openItemProfile('${i.id}')`}));
+            [...dbVouchersGrn,...dbVouchersIssue,...dbVouchersAdj].filter(v=>`${v.no} ${v.vendor||''} ${v.dept||''}`.toLowerCase().includes(q)).slice(0,8).forEach(v=>found.push({label:`${v.no} — ${v.vendor||v.dept||'Adjustment'}`,action:`switchTab('${v.no.startsWith(companyConfig.prefixGrn)?'vouchers-grn':v.no.startsWith(companyConfig.prefixIssue)?'vouchers-issue':'vouchers-adj'}')`}));
+            dbVendors.filter(v=>`${v.code} ${v.name}`.toLowerCase().includes(q)).slice(0,5).forEach(v=>found.push({label:`${v.code} — ${v.name}`,action:`switchTab('vendors')`}));
+            box.innerHTML=found.length?found.map(x=>`<button class="block w-full text-left px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-700" onclick="${x.action};document.getElementById('global-search-results').classList.add('hidden')">${x.label}</button>`).join(''):'<div class="p-3 text-slate-400">No matches.</div>';box.classList.remove('hidden');
+        }
+    </script>
+<div id="supabase-auth-gate" role="dialog" aria-modal="true" aria-labelledby="supabase-login-title" class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900 p-4 sm:p-6">
+  <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white px-7 py-9 shadow-2xl sm:px-10">
+    <div class="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-600 text-2xl text-white shadow-lg"><i class="fa-solid fa-layer-group" aria-hidden="true"></i></div>
+    <h2 id="supabase-login-title" class="text-center text-2xl font-extrabold tracking-tight text-slate-900">Sign in to Raw Material Inventory</h2>
+    <p id="supabase-login-subtitle" class="mt-2 text-center text-sm text-slate-500">Use your authorized workspace account to continue.</p>
+    <form class="mt-8 space-y-4" onsubmit="event.preventDefault();submitSupabaseLogin();">
+      <div>
+        <label for="supabase-login-email" class="mb-1.5 block text-center text-xs font-semibold text-slate-700">Email</label>
+        <input type="email" id="supabase-login-email" autocomplete="username" required placeholder="you@company.com" class="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100">
+      </div>
+      <div>
+        <label for="supabase-login-password" class="mb-1.5 block text-center text-xs font-semibold text-slate-700">Password</label>
+        <input type="password" id="supabase-login-password" autocomplete="current-password" required placeholder="Enter your password" class="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100">
+      </div>
+      <div id="supabase-login-status" role="status" aria-live="polite" class="min-h-5 text-center text-xs text-slate-500"></div>
+      <button id="supabase-login-submit" type="submit" class="w-full rounded-lg bg-brand-600 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2">Sign In</button>
+      <button id="supabase-login-switch" type="button" onclick="toggleSupabaseLoginMode()" class="w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">Create an account instead</button>
+    </form>
+    <p class="mt-5 text-center text-[11px] text-slate-400">Only authorized members of this inventory workspace can continue.</p>
+  </div>
+</div>
+<script>
+// Discard stray literal source text that older uploaded copies may append after the document.
+window.addEventListener('DOMContentLoaded',()=>{
+  Array.from(document.body.childNodes).forEach(node=>{
+    if(node.nodeType===Node.TEXT_NODE && node.textContent.trim()) node.remove();
+  });
+});
+</script>
+</body>
+</html>
+,phone:'+1 (555) 019-2834',email:'stores@metalspack.com',address:'Plot 42, Industrial Zone 4, Steel Parkway',prefixGrn:'GRN-',prefixIssue:'ISS-',prefixAdj:'ADJ-',prefixItem:'RM-',backupFreq:'post',backupPath:'C:\\ERP_Backups\\RawMaterials\\',supabaseUrl:companyConfig.supabaseUrl,supabaseAnonKey:companyConfig.supabaseAnonKey,supabaseWorkspaceId:companyConfig.supabaseWorkspaceId};
+                initSampleData();
+                switchTab('dashboard');
+                showToast("System reset to initial sample data.");
+            }
+        }
+
+        function renderActivityLog() {
+            let tbody = document.getElementById('activity-log-table');
+            tbody.innerHTML = '';
+            dbWorkingLog.forEach(l => {
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                        <td class="p-3 font-mono">${l.timestamp}</td>
+                        <td class="p-3 font-bold text-slate-700 dark:text-slate-300">${l.user}</td>
+                        <td class="p-3 font-semibold">${l.module}</td>
+                        <td class="p-3 font-mono text-brand-600">${l.ref}</td>
+                        <td class="p-3 text-slate-500">${l.desc}</td>
+                        <td class="p-3 text-slate-400 text-xs">Logged</td>
+                    </tr>
+                `;
+            });
+        }
+
+        function updateNotifications() {
+            let notifList = document.getElementById('notif-list');
+            notifList.innerHTML = '';
+
+            let count = 0;
+            dbItems.forEach(i => {
+                let calc = getItemCalculatedStock(i.id);
+                if (calc.status === 'Out of Stock') {
+                    count++;
+                    notifList.innerHTML += `
+                        <div class="p-2.5 hover:bg-rose-50 dark:hover:bg-slate-700 flex items-center space-x-2 text-rose-700">
+                            <i class="fa-solid fa-circle-xmark text-rose-500"></i>
+                            <div>
+                                <div class="font-bold">${i.name} is OUT OF STOCK</div>
+                                <div class="text-[10px] text-slate-400">Current Qty: 0 ${i.uom}</div>
+                            </div>
+                        </div>
+                    `;
+                } else if (calc.status === 'Low Stock') {
+                    count++;
+                    notifList.innerHTML += `
+                        <div class="p-2.5 hover:bg-amber-50 dark:hover:bg-slate-700 flex items-center space-x-2 text-amber-700">
+                            <i class="fa-solid fa-triangle-exclamation text-amber-500"></i>
+                            <div>
+                                <div class="font-bold">${i.name} Low Stock Alert</div>
+                                <div class="text-[10px] text-slate-400">Stock: ${calc.current} (Reorder: ${i.reorderLevel})</div>
+                            </div>
+                        </div>
+                    `;
+                }
+            });
+
+            document.getElementById('notif-count').innerText = count;
+            document.getElementById('notif-badge').classList.toggle('hidden', count === 0);
+        }
+
+        // BACKUP & SETTINGS HELPERS
+        function loadSettingsValues() {
+            document.getElementById('cfg-company-name').value = companyConfig.name;
+            document.getElementById('cfg-company-tagline').value = companyConfig.tagline;
+            document.getElementById('cfg-tax-id').value = companyConfig.taxId;
+            document.getElementById('cfg-currency').value = companyConfig.currency;
+            document.getElementById('cfg-phone').value = companyConfig.phone;
+            document.getElementById('cfg-email').value = companyConfig.email;
+            document.getElementById('cfg-address').value = companyConfig.address;
+            document.getElementById('cfg-prefix-grn').value = companyConfig.prefixGrn;
+            document.getElementById('cfg-prefix-iss').value = companyConfig.prefixIssue;
+            document.getElementById('cfg-prefix-adj').value = companyConfig.prefixAdj;
+            document.getElementById('cfg-backup-freq').value = companyConfig.backupFreq || 'post';
+            document.getElementById('cfg-backup-path').value = companyConfig.backupPath || '';
+            document.getElementById('supabase-project-url').value=companyConfig.supabaseUrl||'';
+            document.getElementById('supabase-public-key').value=companyConfig.supabaseAnonKey||'';
+            document.getElementById('supabase-workspace-id').value=companyConfig.supabaseWorkspaceId||'';
+            document.getElementById('header-company-name').innerText=companyConfig.name;
+            document.getElementById('header-company-tagline').innerText=companyConfig.tagline;
+        }
+
+        function saveCompanyProfile() {
+            companyConfig.name = document.getElementById('cfg-company-name').value;
+            companyConfig.tagline = document.getElementById('cfg-company-tagline').value;
+            companyConfig.taxId = document.getElementById('cfg-tax-id').value;
+            companyConfig.currency = document.getElementById('cfg-currency').value;
+            companyConfig.phone = document.getElementById('cfg-phone').value;
+            companyConfig.email = document.getElementById('cfg-email').value;
+            companyConfig.address = document.getElementById('cfg-address').value;
+            companyConfig.prefixGrn = document.getElementById('cfg-prefix-grn').value;
+            companyConfig.prefixIssue = document.getElementById('cfg-prefix-iss').value;
+            companyConfig.prefixAdj = document.getElementById('cfg-prefix-adj').value;
+            companyConfig.backupFreq=document.getElementById('cfg-backup-freq').value;
+            companyConfig.backupPath=document.getElementById('cfg-backup-path').value;
+
+            document.getElementById('header-company-name').innerText = companyConfig.name;
+            document.getElementById('header-company-tagline').innerText = companyConfig.tagline;
+
+            saveToLocalStorage();
+            showToast("Company configuration saved.");
+        }
+
+        function downloadBackupJson() {
+            let fullData = makeBackupSnapshot();
+            let blob = new Blob([JSON.stringify(fullData, null, 2)], { type: 'application/json' });
+            let url = URL.createObjectURL(blob);
+            let a = document.createElement('a');
+            a.href = url;
+            a.download = `ERP_Backup_${localDateString()}.json`;
+            a.click();
+            showToast("JSON System Backup downloaded.");
+        }
+
+        // UTILITY HELPERS
+        function populateSelect(id, items) {
+            let select = document.getElementById(id);
+            if (!select) return;
+            select.innerHTML = '<option value="">All</option>';
+            items.forEach(item => {
+                let val = typeof item === 'object' ? item.value : item;
+                let label = typeof item === 'object' ? item.label : item;
+                select.innerHTML += `<option value="${val}">${label}</option>`;
+            });
+        }
+
+        function openModal(id) {
+            document.getElementById(id).classList.remove('hidden');
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).classList.add('hidden');
+            if(supabasePendingRemote&&!document.querySelector('[id^="modal-"]:not(.hidden)')){const row=supabasePendingRemote;supabasePendingRemote=null;receiveSharedInventory(row);}
         }
 
         // INIT APP EVENT LISTENERS & SHORTCUTS
@@ -3697,7 +4004,8 @@
                     e.preventDefault();
                     document.getElementById('global-search-input').focus();
                 } else if (e.key === 'Escape') {
-                    document.querySelectorAll('.fixed.inset-0').forEach(m => m.classList.add('hidden'));
+                    document.querySelectorAll('.fixed.inset-0:not(#supabase-auth-gate)').forEach(m => m.classList.add('hidden'));
+                    if(!supabaseAccessGranted&&activeTab!=='settings')document.getElementById('supabase-auth-gate')?.classList.remove('hidden');
                 }
             });
 
