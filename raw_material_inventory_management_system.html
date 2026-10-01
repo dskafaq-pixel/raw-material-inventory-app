@@ -62,6 +62,7 @@
         }
         @media(min-width:768px){#nav-owner-mobile{display:none!important}}
         @media(max-width:767px){body.owner-view-mode #sidebar{display:none!important}body.owner-view-mode main{padding:0!important;padding-bottom:76px!important}body.owner-view-mode #view-owner-mobile{min-height:calc(100dvh - 64px);padding:16px}body.owner-view-mode #owner-mobile-bottom-nav{display:grid!important}body.owner-view-mode #toggle-sidebar-btn,body.owner-view-mode #owner-full-app-btn{display:none!important}}
+        table{border-collapse:collapse}table th,table td{border:1px solid #e2e8f0!important}.dark table th,.dark table td{border-color:#334155!important}
         /* Printable Voucher CSS */
         @media print {
             body * {
@@ -86,6 +87,7 @@
     </style>
 </head>
 <body class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 min-h-screen flex flex-col transition-colors duration-200">
+    <div id="voucher-item-autocomplete" role="listbox" aria-label="Matching inventory items" style="display:none;position:fixed;z-index:100;max-height:260px;overflow-y:auto;overscroll-behavior:contain;background:#fff;color:#0f172a;border:1px solid #cbd5e1;border-radius:0.5rem;box-shadow:0 12px 28px rgba(15,23,42,.22)"></div>
 
     <!-- TOP NAVIGATION BAR -->
     <header class="h-16 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 fixed top-0 left-0 right-0 z-30 flex items-center justify-between px-4 transition-colors">
@@ -527,7 +529,7 @@
                 </div>
                 <div id="owner-panel-dashboard" class="space-y-4">
                     <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div class="mb-3 flex items-center justify-between"><h3 class="font-bold text-slate-800 dark:text-white">Needs attention</h3><button onclick="setOwnerSubview('inventory');document.getElementById('owner-mobile-filter').value='Low Stock';renderOwnerInventory()" class="text-xs font-semibold text-brand-600">See stock</button></div><div id="owner-attention-list" class="space-y-2"></div></div>
-                    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"><h3 class="mb-3 font-bold text-slate-800 dark:text-white">Recent stock activity</h3><div id="owner-recent-list" class="space-y-2"></div></div>
+                    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div class="mb-3 flex flex-wrap items-center justify-between gap-2"><h3 class="font-bold text-slate-800 dark:text-white">Recent stock activity</h3><div class="flex flex-wrap items-center gap-2"><select id="owner-activity-period" onchange="updateOwnerActivityControls()" class="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800"><option value="recent" selected>Latest 5</option><option value="today">Today</option><option value="week">This week</option><option value="month">This month</option><option value="custom">Select date</option></select><input id="owner-activity-date" type="date" onchange="renderOwnerActivity()" class="hidden rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800"></div></div><div id="owner-recent-list" class="space-y-2"></div></div>
                 </div>
                 <div id="owner-panel-inventory" class="hidden space-y-3">
                     <div class="flex gap-2"><input id="owner-mobile-search" oninput="renderOwnerInventory()" type="search" placeholder="Search item name or code" class="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm dark:border-slate-700 dark:bg-slate-800"><select id="owner-mobile-filter" onchange="renderOwnerInventory()" class="rounded-xl border border-slate-200 bg-white px-2 text-xs dark:border-slate-700 dark:bg-slate-800"><option value="">All</option><option value="Low Stock">Low stock</option><option value="Out of Stock">Out of stock</option><option value="Normal">Normal</option></select></div>
@@ -545,7 +547,6 @@
                             <p class="text-xs text-slate-500">Comprehensive chronological transaction history for audit.</p>
                         </div>
                         <div class="flex items-center space-x-2">
-                            <button onclick="renderStockLedger()" class="px-3 py-1.5 bg-brand-600 text-white rounded-lg text-xs font-semibold">Filter</button>
                             <button onclick="exportLedgerExcel()" class="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold"><i class="fa-solid fa-file-excel mr-1"></i> Export</button>
                         </div>
                     </div>
@@ -562,7 +563,7 @@
                             <option value="Adjustment Decrease">Adjustment (-)</option>
                             <option value="Reversal">Reversal</option>
                         </select>
-                        <input type="text" id="ledger-filter-voucher" placeholder="Voucher #" class="p-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
+                        <button onclick="renderStockLedger()" class="p-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-semibold shadow-sm">Apply Filters</button>
                         <button onclick="resetLedgerFilters()" class="p-2 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg">Reset Filters</button>
                     </div>
                 </div>
@@ -572,16 +573,16 @@
                         <table class="w-full text-xs text-left">
                             <thead class="bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 uppercase">
                                 <tr>
-                                    <th class="p-3">Date & Time</th>
-                                    <th class="p-3">Voucher #</th>
-                                    <th class="p-3">Type</th>
-                                    <th class="p-3">Item Name</th>
-                                    <th class="p-3">Ref / Party</th>
-                                    <th class="p-3 text-right">Opening</th>
-                                    <th class="p-3 text-right text-emerald-600">Inward (+)</th>
-                                    <th class="p-3 text-right text-amber-600">Outward (-)</th>
-                                    <th class="p-3 text-right text-purple-600">Adj (+/-)</th>
-                                    <th class="p-3 text-right font-bold">Balance</th>
+                                    <th class="p-3"><button onclick="sortLedgerTable('date')">Date &amp; Time <span id="sort-ledger-date">▼</span></button></th>
+                                    <th class="p-3"><button onclick="sortLedgerTable('voucherNo')">Voucher # <span id="sort-ledger-voucherNo"></span></button></th>
+                                    <th class="p-3"><button onclick="sortLedgerTable('type')">Type <span id="sort-ledger-type"></span></button></th>
+                                    <th class="p-3"><button onclick="sortLedgerTable('itemName')">Item Name <span id="sort-ledger-itemName"></span></button></th>
+                                    <th class="p-3"><button onclick="sortLedgerTable('ref')">Ref / Party <span id="sort-ledger-ref"></span></button></th>
+                                    <th class="p-3 text-right"><button onclick="sortLedgerTable('openBalance')">Opening <span id="sort-ledger-openBalance"></span></button></th>
+                                    <th class="p-3 text-right text-emerald-600"><button onclick="sortLedgerTable('qtyIn')">Inward (+) <span id="sort-ledger-qtyIn"></span></button></th>
+                                    <th class="p-3 text-right text-amber-600"><button onclick="sortLedgerTable('qtyOut')">Outward (-) <span id="sort-ledger-qtyOut"></span></button></th>
+                                    <th class="p-3 text-right text-purple-600"><button onclick="sortLedgerTable('qtyAdj')">Adj (+/-) <span id="sort-ledger-qtyAdj"></span></button></th>
+                                    <th class="p-3 text-right font-bold"><button onclick="sortLedgerTable('closeBalance')">Balance <span id="sort-ledger-closeBalance"></span></button></th>
                                 </tr>
                             </thead>
                             <tbody id="ledger-table-body" class="divide-y divide-slate-100 dark:divide-slate-700">
@@ -610,13 +611,12 @@
                         <table class="w-full text-xs text-left">
                             <thead class="bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 uppercase">
                                 <tr>
-                                    <th class="p-3">Voucher #</th>
-                                    <th class="p-3">Date</th>
-                                    <th class="p-3">Vendor</th>
-                                    <th class="p-3">Ref No</th>
-                                    <th class="p-3 text-right">Items</th>
-                                    <th class="p-3 text-right">Total Amount</th>
-                                    <th class="p-3 text-center">Status</th>
+                                    <th class="p-3"><button onclick="sortVoucherTable('GRN','no')">Voucher No <span id="sort-GRN-no"></span></button></th>
+                                    <th class="p-3"><button onclick="sortVoucherTable('GRN','date')">Date <span id="sort-GRN-date"></span></button></th>
+                                    <th class="p-3"><button onclick="sortVoucherTable('GRN','item')">Item Name <span id="sort-GRN-item"></span></button></th>
+                                    <th class="p-3 text-right"><button onclick="sortVoucherTable('GRN','qty')">Item Qty <span id="sort-GRN-qty"></span></button></th>
+                                    <th class="p-3 text-right"><button onclick="sortVoucherTable('GRN','amount')">Total Amount <span id="sort-GRN-amount"></span></button></th>
+                                    <th class="p-3 text-center"><button onclick="sortVoucherTable('GRN','status')">Status <span id="sort-GRN-status"></span></button></th>
                                     <th class="p-3 text-center">Actions</th>
                                 </tr>
                             </thead>
@@ -646,13 +646,12 @@
                         <table class="w-full text-xs text-left">
                             <thead class="bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 uppercase">
                                 <tr>
-                                    <th class="p-3">Voucher #</th>
-                                    <th class="p-3">Date</th>
-                                    <th class="p-3">Department</th>
-                                    <th class="p-3">Issued To</th>
-                                    <th class="p-3 text-right">Items</th>
-                                    <th class="p-3 text-right">Total Value</th>
-                                    <th class="p-3 text-center">Status</th>
+                                    <th class="p-3"><button onclick="sortVoucherTable('ISSUE','no')">Voucher No <span id="sort-ISSUE-no"></span></button></th>
+                                    <th class="p-3"><button onclick="sortVoucherTable('ISSUE','date')">Date <span id="sort-ISSUE-date"></span></button></th>
+                                    <th class="p-3"><button onclick="sortVoucherTable('ISSUE','item')">Item Name <span id="sort-ISSUE-item"></span></button></th>
+                                    <th class="p-3 text-right"><button onclick="sortVoucherTable('ISSUE','qty')">Item Qty <span id="sort-ISSUE-qty"></span></button></th>
+                                    <th class="p-3 text-right"><button onclick="sortVoucherTable('ISSUE','amount')">Total Amount <span id="sort-ISSUE-amount"></span></button></th>
+                                    <th class="p-3 text-center"><button onclick="sortVoucherTable('ISSUE','status')">Status <span id="sort-ISSUE-status"></span></button></th>
                                     <th class="p-3 text-center">Actions</th>
                                 </tr>
                             </thead>
@@ -682,15 +681,12 @@
                         <table class="w-full text-xs text-left">
                             <thead class="bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 uppercase">
                                 <tr>
-                                    <th class="p-3">Adj No</th>
-                                    <th class="p-3">Date</th>
-                                    <th class="p-3">Item</th>
-                                    <th class="p-3 text-right">System Qty</th>
-                                    <th class="p-3 text-right">Physical Qty</th>
-                                    <th class="p-3 text-right">Difference</th>
-                                    <th class="p-3">Type</th>
-                                    <th class="p-3">Reason</th>
-                                    <th class="p-3 text-center">Status</th>
+                                    <th class="p-3"><button onclick="sortVoucherTable('ADJ','no')">Voucher No <span id="sort-ADJ-no"></span></button></th>
+                                    <th class="p-3"><button onclick="sortVoucherTable('ADJ','date')">Date <span id="sort-ADJ-date"></span></button></th>
+                                    <th class="p-3"><button onclick="sortVoucherTable('ADJ','item')">Item Name <span id="sort-ADJ-item"></span></button></th>
+                                    <th class="p-3 text-right"><button onclick="sortVoucherTable('ADJ','qty')">Item Qty <span id="sort-ADJ-qty"></span></button></th>
+                                    <th class="p-3 text-right"><button onclick="sortVoucherTable('ADJ','amount')">Total Amount <span id="sort-ADJ-amount"></span></button></th>
+                                    <th class="p-3 text-center"><button onclick="sortVoucherTable('ADJ','status')">Status <span id="sort-ADJ-status"></span></button></th>
                                     <th class="p-3 text-center">Actions</th>
                                 </tr>
                             </thead>
@@ -1372,7 +1368,8 @@
 
                 <div>
                     <label class="block font-medium mb-1">Select Item <span class="text-rose-500">*</span></label>
-                    <select id="adj-item" required onchange="onAdjItemChange(this.value)" class="w-full p-2 bg-slate-50 dark:bg-slate-700 border rounded-lg"></select>
+                    <input id="adj-item-search" type="search" autocomplete="off" placeholder="Type item code or name to search…" oninput="showVoucherItemAutocomplete(this,'ADJ',true)" onfocus="showVoucherItemAutocomplete(this,'ADJ')" onkeydown="handleVoucherAutocompleteKeydown(event)" onblur="scheduleVoucherAutocompleteHide(this)" class="w-full p-2 bg-slate-50 dark:bg-slate-700 border rounded-lg">
+                    <select id="adj-item" required onchange="onAdjItemChange(this.value)" class="hidden"></select>
                 </div>
 
                 <div class="grid grid-cols-3 gap-2 p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border">
@@ -1691,8 +1688,34 @@
         // Global Active Filters
         let activeTab = 'dashboard';
         let ownerSubview = 'dashboard';
+        let ownerSelectedItemId='';
+        const voucherSortState={GRN:{key:'date',direction:'desc'},ISSUE:{key:'date',direction:'desc'},ADJ:{key:'date',direction:'desc'}};
+        const ledgerSortState={key:'date',direction:'desc'};
 
         function localDateString(date=new Date()) { return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`; }
+        function displayVoucherDate(value){const s=String(value||'');const m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);if(m)return `${m[3]}-${m[2]}-${m[1]}`;const d=new Date(s);return Number.isNaN(d.getTime())?s:`${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;}
+        function voucherLines(v,type){if(type==='ADJ'){const item=dbItems.find(i=>i.id===v.itemId);return [{name:v.itemName||item?.name||'Item',code:v.itemCode||item?.code||'',uom:item?.uom||'',qty:Number(v.physicalStock)||0}];}return Array.isArray(v.items)?v.items.map(x=>({name:x.itemName||'',code:x.itemCode||'',uom:x.uom||'',qty:Number(x.qty)||0})):[];}
+        function voucherQuantity(v,type){return type==='ADJ'?Number(v.physicalStock)||0:voucherLines(v,type).reduce((n,x)=>n+x.qty,0);}
+        function voucherAmount(v,type){if(type==='ADJ'){const item=dbItems.find(i=>i.id===v.itemId);return Math.abs(Number(v.diff)||0)*(Number(item?.price)||0);}return Number(v.grandTotal)||((v.items||[]).reduce((n,x)=>n+(Number(x.total)||((Number(x.qty)||0)*(Number(x.rate)||0))),0));}
+        function voucherItemMarkup(v,type){const lines=voucherLines(v,type);return lines.length?lines.map(x=>`<div class="whitespace-nowrap">${escapeHtml(x.name)} <span class="text-slate-400">(${escapeHtml(x.code)})</span></div>`).join(''):'—';}
+        function voucherQtyMarkup(v,type){const lines=voucherLines(v,type);if(type==='ADJ'){const unit=lines[0]?.uom||'';return `${ownerNumber(v.physicalStock)} ${escapeHtml(unit)} <span class="block text-[10px] ${Number(v.diff)>=0?'text-emerald-600':'text-rose-600'}">Δ ${Number(v.diff)>0?'+':''}${ownerNumber(v.diff)}</span>`;}return lines.length?lines.map(x=>`<div class="whitespace-nowrap">${ownerNumber(x.qty)} ${escapeHtml(x.uom)}</div>`).join(''):'—';}
+        function sortVoucherTable(type,key){const state=voucherSortState[type];state.direction=state.key===key?(state.direction==='asc'?'desc':'asc'):(key==='date'?'desc':'asc');state.key=key;renderVoucherList(type);}
+        function renderVoucherList(type){if(type==='GRN')renderGrnTable();else if(type==='ISSUE')renderIssueTable();else renderAdjTable();}
+        function sortedVouchers(type){const state=voucherSortState[type],list=getVoucherList(type);return [...list].sort((a,b)=>{let av,bv;if(state.key==='date'){av=String(a.date||'');bv=String(b.date||'');}else if(state.key==='item'){av=voucherLines(a,type).map(x=>x.name).join(' ').toLowerCase();bv=voucherLines(b,type).map(x=>x.name).join(' ').toLowerCase();}else if(state.key==='qty'){av=voucherQuantity(a,type);bv=voucherQuantity(b,type);}else if(state.key==='amount'){av=voucherAmount(a,type);bv=voucherAmount(b,type);}else if(state.key==='status'){av=String(a.status||'');bv=String(b.status||'');}else{av=String(a.no||'');bv=String(b.no||'');}const c=typeof av==='number'&&typeof bv==='number'?av-bv:String(av).localeCompare(String(bv),undefined,{numeric:true,sensitivity:'base'});return c*(state.direction==='asc'?1:-1);});}
+        function updateVoucherSortIndicators(type){for(const key of ['no','date','item','qty','amount','status']){const el=document.getElementById(`sort-${type}-${key}`);if(el)el.innerText=voucherSortState[type].key===key?(voucherSortState[type].direction==='asc'?'▲':'▼'):'';}}
+        function itemOptionLabel(item){return `${item.code} — ${item.name}`;}
+        function findVoucherItemId(text){const q=String(text||'').trim().toLowerCase();if(!q)return '';const found=dbItems.find(i=>[i.name,i.code,itemOptionLabel(i),`${i.code} - ${i.name}`].some(x=>String(x||'').trim().toLowerCase()===q)||q.endsWith(` — ${String(i.name||'').toLowerCase()}`));return found?.id||'';}
+        let activeVoucherAutocomplete=null,voucherAutocompleteHideTimer=null;
+        function clearVoucherAutocompleteSelection(input,type){if(type==='ADJ'){document.getElementById('adj-item').value='';document.getElementById('adj-system-stock').value='';document.getElementById('adj-physical-stock').value='';document.getElementById('adj-diff').value='';return;}const row=input.closest('tr');if(!row)return;row.querySelector('select').value='';if(type==='GRN'){document.getElementById(`${row.id}-uom`).innerText='—';calcGrnRow(row.id);}else{document.getElementById(`${row.id}-avail`).innerText='0';calcIssueRow(row.id);}}
+        function showVoucherItemAutocomplete(input,type,clearSelection=false){if(clearSelection)clearVoucherAutocompleteSelection(input,type);const popup=document.getElementById('voucher-item-autocomplete'),query=String(input.value||'').trim().toLocaleLowerCase();if(!query){popup.style.display='none';activeVoucherAutocomplete=null;return;}const matches=dbItems.filter(item=>`${item.name||''} ${item.code||''}`.toLocaleLowerCase().includes(query));activeVoucherAutocomplete={input,type,rowId:type==='ADJ'?'':input.closest('tr')?.id||'',matches,activeIndex:-1};popup.innerHTML='';if(!matches.length){popup.style.display='none';return;}popup.style.background=document.documentElement.classList.contains('dark')?'#1e293b':'#fff';popup.style.color=document.documentElement.classList.contains('dark')?'#f1f5f9':'#0f172a';matches.forEach((item,index)=>{const option=document.createElement('button');option.type='button';option.setAttribute('role','option');option.setAttribute('aria-selected','false');option.tabIndex=-1;option.className='block w-full px-3 py-2 text-left text-sm hover:bg-sky-50 dark:hover:bg-slate-700 focus:bg-sky-50 dark:focus:bg-slate-700';const name=document.createElement('span');name.className='block font-medium';name.textContent=item.name||'';const code=document.createElement('span');code.className='block text-xs text-slate-500';code.textContent=item.code||'';option.append(name,code);option.addEventListener('mousedown',event=>event.preventDefault());option.addEventListener('mouseenter',()=>setVoucherAutocompleteActive(index));option.addEventListener('click',()=>chooseVoucherAutocompleteItem(index));popup.appendChild(option);});positionVoucherAutocomplete();popup.style.display='block';}
+        function positionVoucherAutocomplete(){if(!activeVoucherAutocomplete)return;const input=activeVoucherAutocomplete.input,popup=document.getElementById('voucher-item-autocomplete'),rect=input.getBoundingClientRect(),margin=8,width=Math.min(rect.width,window.innerWidth-margin*2),left=Math.max(margin,Math.min(rect.left,window.innerWidth-width-margin)),below=window.innerHeight-rect.bottom-margin,above=rect.top-margin,placeAbove=below<140&&above>below,maxHeight=Math.max(80,Math.min(260,placeAbove?above:below));popup.style.left=`${left}px`;popup.style.width=`${width}px`;popup.style.maxHeight=`${maxHeight}px`;popup.style.top=placeAbove?'auto':`${rect.bottom+4}px`;popup.style.bottom=placeAbove?`${window.innerHeight-rect.top+4}px`:'auto';}
+        function setVoucherAutocompleteActive(index){if(!activeVoucherAutocomplete)return;const popup=document.getElementById('voucher-item-autocomplete'),options=[...popup.querySelectorAll('[role="option"]')];if(!options.length)return;const next=Math.max(0,Math.min(index,options.length-1));activeVoucherAutocomplete.activeIndex=next;options.forEach((option,i)=>{const active=i===next;option.setAttribute('aria-selected',String(active));option.classList.toggle('bg-sky-100',active);});options[next].scrollIntoView({block:'nearest'});}
+        function handleVoucherAutocompleteKeydown(event){if(!activeVoucherAutocomplete){if(event.key==='ArrowDown'||event.key==='ArrowUp'){const input=event.currentTarget,type=input.id==='adj-item-search'?'ADJ':input.dataset.voucherType;showVoucherItemAutocomplete(input,type);if(activeVoucherAutocomplete?.matches.length){event.preventDefault();setVoucherAutocompleteActive(event.key==='ArrowUp'?activeVoucherAutocomplete.matches.length-1:0);}}return;}const state=activeVoucherAutocomplete;if(event.key==='ArrowDown'){event.preventDefault();setVoucherAutocompleteActive(state.activeIndex<0?0:state.activeIndex+1);}else if(event.key==='ArrowUp'){event.preventDefault();setVoucherAutocompleteActive(state.activeIndex<0?state.matches.length-1:state.activeIndex-1);}else if(event.key==='Enter'&&state.matches.length){event.preventDefault();chooseVoucherAutocompleteItem(state.activeIndex<0?0:state.activeIndex);}else if(event.key==='Escape'){event.preventDefault();document.getElementById('voucher-item-autocomplete').style.display='none';activeVoucherAutocomplete=null;}}
+        function chooseVoucherAutocompleteItem(index){if(!activeVoucherAutocomplete)return;const state=activeVoucherAutocomplete,item=state.matches[index];if(!item)return;if(state.type==='ADJ')setAdjustmentItemSelection(item.id);else setVoucherItemSelection(state.rowId,state.type,item.id);document.getElementById('voucher-item-autocomplete').style.display='none';activeVoucherAutocomplete=null;state.input.focus();}
+        function scheduleVoucherAutocompleteHide(input){clearTimeout(voucherAutocompleteHideTimer);voucherAutocompleteHideTimer=setTimeout(()=>{if(activeVoucherAutocomplete?.input===input&&document.activeElement!==input){document.getElementById('voucher-item-autocomplete').style.display='none';activeVoucherAutocomplete=null;}},140);}
+        window.addEventListener('resize',positionVoucherAutocomplete);window.addEventListener('scroll',positionVoucherAutocomplete,true);
+        function setVoucherItemSelection(rowId,type,itemId){const row=document.getElementById(rowId);if(!row)return;const item=dbItems.find(i=>i.id===itemId);row.querySelector('select').value=itemId||'';const input=row.querySelector('.voucher-item-search');if(input)input.value=item?itemOptionLabel(item):'';if(item){if(type==='GRN')onGrnItemSelect(rowId,itemId);else onIssueItemSelect(rowId,itemId);}}
+        function setAdjustmentItemSelection(id){const item=dbItems.find(i=>i.id===id);document.getElementById('adj-item').value=id||'';document.getElementById('adj-item-search').value=item?itemOptionLabel(item):'';if(id)onAdjItemChange(id);}
 
         // Sample Pre-populated Data Initialization
         function initSampleData() {
@@ -2097,6 +2120,15 @@
         function openOwnerStockFilter(status){document.getElementById('owner-mobile-filter').value=status;document.getElementById('owner-mobile-search').value='';setOwnerSubview('inventory');}
         function ownerEscape(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
         function ownerNumber(value){return Number(value||0).toLocaleString(undefined,{maximumFractionDigits:2});}
+        function updateOwnerActivityControls(){const period=document.getElementById('owner-activity-period'),date=document.getElementById('owner-activity-date');if(!period||!date)return;date.classList.toggle('hidden',period.value!=='custom');if(period.value==='custom'&&!date.value)date.value=localDateString();renderOwnerActivity();}
+        function renderOwnerActivity(){
+            const period=document.getElementById('owner-activity-period')?.value||'recent',dateValue=document.getElementById('owner-activity-date')?.value||localDateString(),now=new Date(),today=localDateString(now);
+            const weekStart=new Date(now.getFullYear(),now.getMonth(),now.getDate());weekStart.setDate(weekStart.getDate()-((weekStart.getDay()+6)%7));
+            const from=period==='today'?today:period==='week'?localDateString(weekStart):period==='month'?`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`:dateValue;
+            const through=period==='custom'?dateValue:today;
+            const matches=[...dbVouchersGrn.map(v=>({...v,ownerType:'Received'})),...dbVouchersIssue.map(v=>({...v,ownerType:'Issued'})),...dbVouchersAdj.map(v=>({...v,ownerType:'Adjusted'}))].filter(v=>v.status==='Posted'&&(period==='recent'||(String(v.date||'').slice(0,10)>=from&&String(v.date||'').slice(0,10)<=through))).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))||String(b.no||'').localeCompare(String(a.no||''))),recent=period==='recent'?matches.slice(0,5):matches,recentNode=document.getElementById('owner-recent-list');
+            recentNode.innerHTML=recent.length?recent.map(v=>{const qty=v.items?v.items.reduce((s,l)=>s+(Number(l.qty)||0),0):Math.abs(Number(v.diff)||0),detail=v.items?(v.items.length===1?v.items[0].itemName:`${v.items.length} items`):(v.itemName||'Stock adjustment');return `<div class="flex items-center justify-between gap-3 border-b border-slate-100 py-2 last:border-0 dark:border-slate-700"><div class="min-w-0"><div class="truncate text-sm font-semibold">${ownerEscape(detail)}</div><div class="text-xs text-slate-500">${ownerEscape(displayVoucherDate(v.date))} · ${ownerEscape(v.no||'')}</div></div><div class="shrink-0 text-right text-xs"><div class="font-bold">${v.ownerType==='Issued'?'−':'+'}${ownerNumber(qty)}</div><div class="text-slate-500">${v.ownerType}</div></div></div>`;}).join(''):'<p class="py-3 text-sm text-slate-500">No posted stock activity for this period.</p>';
+        }
         function renderOwnerView(){
             const calculations=dbItems.map(item=>({item,calc:getItemCalculatedStock(item.id)}));
             document.getElementById('owner-kpi-stock').innerText=ownerNumber(calculations.reduce((sum,row)=>sum+(Number(row.calc.current)||0),0));
@@ -2105,15 +2137,19 @@
             document.getElementById('owner-kpi-out').innerText=calculations.filter(x=>x.calc.status==='Out of Stock').length.toLocaleString();
             const attention=calculations.filter(x=>x.calc.status!=='Normal').sort((a,b)=>a.calc.current-b.calc.current).slice(0,6), attentionNode=document.getElementById('owner-attention-list');
             attentionNode.innerHTML=attention.length?attention.map(({item,calc})=>`<div class="flex items-center justify-between gap-3 rounded-lg bg-slate-50 p-3 dark:bg-slate-700/60"><div class="min-w-0"><div class="truncate text-sm font-semibold">${ownerEscape(item.name)}</div><div class="text-xs text-slate-500">${ownerEscape(item.code)} · ${ownerEscape(item.uom)}</div></div><div class="shrink-0 text-right"><div class="font-bold">${ownerNumber(calc.current)} ${ownerEscape(item.uom)}</div><span class="text-[11px] font-semibold ${calc.status==='Low Stock'?'text-amber-600':'text-rose-600'}">${calc.status}</span></div></div>`).join(''):'<p class="py-3 text-sm text-emerald-700">All items are above reorder levels.</p>';
-            const recent=[...dbVouchersGrn.map(v=>({...v,ownerType:'Received'})),...dbVouchersIssue.map(v=>({...v,ownerType:'Issued'})),...dbVouchersAdj.map(v=>({...v,ownerType:'Adjusted'}))].filter(v=>v.status==='Posted').sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,5), recentNode=document.getElementById('owner-recent-list');
-            recentNode.innerHTML=recent.length?recent.map(v=>{const qty=v.items?v.items.reduce((s,l)=>s+(Number(l.qty)||0),0):Math.abs(Number(v.diff)||0);const detail=v.items?(v.items.length===1?v.items[0].itemName:`${v.items.length} items`):(v.itemName||'Stock adjustment');return `<div class="flex items-center justify-between gap-3 border-b border-slate-100 py-2 last:border-0 dark:border-slate-700"><div class="min-w-0"><div class="truncate text-sm font-semibold">${ownerEscape(detail)}</div><div class="text-xs text-slate-500">${ownerEscape(v.date||'')} · ${ownerEscape(v.no||'')}</div></div><div class="shrink-0 text-right text-xs"><div class="font-bold">${v.ownerType==='Issued'?'−':'+'}${ownerNumber(qty)}</div><div class="text-slate-500">${v.ownerType}</div></div></div>`;}).join(''):'<p class="py-3 text-sm text-slate-500">No posted stock activity yet.</p>';
+            updateOwnerActivityControls();
             setOwnerSubview(ownerSubview);
         }
         function renderOwnerInventory(){
-            const q=(document.getElementById('owner-mobile-search')?.value||'').trim().toLowerCase(),status=document.getElementById('owner-mobile-filter')?.value||'';
-            const rows=dbItems.map(item=>({item,calc:getItemCalculatedStock(item.id)})).filter(({item,calc})=>(!q||`${item.name} ${item.code} ${item.category}`.toLowerCase().includes(q))&&(!status||calc.status===status));
-            document.getElementById('owner-inventory-list').innerHTML=rows.length?rows.map(({item,calc})=>`<article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div class="flex items-start justify-between gap-3"><div class="min-w-0"><h3 class="break-words font-semibold text-slate-900 dark:text-white">${ownerEscape(item.name)}</h3><p class="mt-1 text-xs text-slate-500">${ownerEscape(item.code)} · ${ownerEscape(item.category||'Uncategorized')}</p></div><span class="shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${calc.status==='Normal'?'bg-emerald-100 text-emerald-800':calc.status==='Low Stock'?'bg-amber-100 text-amber-800':'bg-rose-100 text-rose-800'}">${calc.status}</span></div><div class="mt-4 flex items-end justify-between border-t border-slate-100 pt-3 dark:border-slate-700"><div><div class="text-[11px] text-slate-500">Available quantity</div><div class="text-xl font-bold text-slate-900 dark:text-white">${ownerNumber(calc.current)} <span class="text-sm font-medium text-slate-500">${ownerEscape(item.uom)}</span></div></div><div class="text-right"><div class="text-[11px] text-slate-500">Reorder at</div><div class="font-semibold">${ownerNumber(item.reorderLevel)} ${ownerEscape(item.uom)}</div></div></div></article>`).join(''):'<div class="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">No items match this search.</div>';
+            const q=(document.getElementById('owner-mobile-search')?.value||'').trim(),status=document.getElementById('owner-mobile-filter')?.value||'';
+            const rows=dbItems.map(item=>({item,calc:getItemCalculatedStock(item.id),searchScore:ownerInventorySearchScore(item,q)})).filter(({calc,searchScore})=>searchScore!==Infinity&&(!status||calc.status===status)).sort((a,b)=>a.searchScore-b.searchScore);
+            if(ownerSelectedItemId&&!rows.some(row=>row.item.id===ownerSelectedItemId))ownerSelectedItemId='';
+            document.getElementById('owner-inventory-list').innerHTML=rows.length?rows.map(({item,calc})=>{const selected=ownerSelectedItemId===item.id;return `<article role="button" tabindex="0" aria-expanded="${selected}" onclick="toggleOwnerItemProfile('${ownerEscape(item.id)}')" onkeydown="if(event.target===event.currentTarget&&(event.key==='Enter'||event.key===' ')){event.preventDefault();toggleOwnerItemProfile('${ownerEscape(item.id)}')}" class="cursor-pointer rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-brand-300 dark:border-slate-700 dark:bg-slate-800"><div class="flex items-start justify-between gap-3"><div class="min-w-0"><h3 class="break-words font-semibold text-slate-900 dark:text-white">${ownerEscape(item.name)}</h3><p class="mt-1 text-xs text-slate-500">${ownerEscape(item.code)} · ${ownerEscape(item.category||'Uncategorized')}</p></div><span class="shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${calc.status==='Normal'?'bg-emerald-100 text-emerald-800':calc.status==='Low Stock'?'bg-amber-100 text-amber-800':'bg-rose-100 text-rose-800'}">${calc.status}</span></div><div class="mt-4 flex items-end justify-between border-t border-slate-100 pt-3 dark:border-slate-700"><div><div class="text-[11px] text-slate-500">Available quantity</div><div class="text-xl font-bold text-slate-900 dark:text-white">${ownerNumber(calc.current)} <span class="text-sm font-medium text-slate-500">${ownerEscape(item.uom)}</span></div></div><div class="text-right"><div class="text-[11px] text-slate-500">Reorder at</div><div class="font-semibold">${ownerNumber(item.reorderLevel)} ${ownerEscape(item.uom)}</div></div></div>${selected?ownerItemRecentActivityMarkup(item):''}</article>`;}).join(''):'<div class="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">No items match this search.</div>';
         }
+        function normalizeOwnerInventorySearch(value){return String(value??'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim();}
+        function ownerInventorySearchScore(item,query){const normalizedQuery=normalizeOwnerInventorySearch(query);if(!normalizedQuery)return 0;const terms=normalizedQuery.split(/\s+/),fields=[item.name,item.code,item.category,item.subcategory,item.uom].map(normalizeOwnerInventorySearch);if(!terms.every(term=>fields.some(field=>field.includes(term))))return Infinity;const name=normalizeOwnerInventorySearch(item.name);if(name===normalizedQuery)return 0;if(name.startsWith(normalizedQuery))return 1;if(name.split(/\s+/).some(word=>word.startsWith(normalizedQuery)))return 2;if(name.includes(normalizedQuery))return 3;return 4;}
+        function toggleOwnerItemProfile(itemId){ownerSelectedItemId=ownerSelectedItemId===itemId?'':itemId;renderOwnerInventory();}
+        function ownerItemRecentActivityMarkup(item){const movements=[];dbVouchersGrn.filter(v=>v.status==='Posted').forEach(v=>(v.items||[]).filter(line=>line.itemId===item.id).forEach(line=>movements.push({date:`${String(v.date||'').slice(0,10)} 10:00`,voucher:v.no,type:'Received',delta:Number(line.qty)||0})));dbVouchersIssue.filter(v=>v.status==='Posted').forEach(v=>(v.items||[]).filter(line=>line.itemId===item.id).forEach(line=>movements.push({date:`${String(v.date||'').slice(0,10)} 14:00`,voucher:v.no,type:'Issued',delta:-(Number(line.qty)||0)})));dbVouchersAdj.filter(v=>v.status==='Posted'&&v.itemId===item.id).forEach(v=>movements.push({date:`${String(v.date||'').slice(0,10)} 16:00`,voucher:v.no,type:'Adjustment',delta:Number(v.diff)||0}));movements.sort((a,b)=>a.date.localeCompare(b.date)||String(a.voucher||'').localeCompare(String(b.voucher||'')));let balance=Number(item.openingQty)||0;movements.forEach(m=>{balance+=m.delta;m.balance=balance;});const recent=movements.slice(-4).reverse();return `<div class="mt-4 border-t border-slate-200 pt-3 dark:border-slate-700" onclick="event.stopPropagation()"><div class="mb-2 flex items-center justify-between"><h4 class="text-sm font-bold text-slate-800 dark:text-white">Recent activity</h4><button type="button" onclick="toggleOwnerItemProfile('${ownerEscape(item.id)}')" class="rounded-lg px-2 py-1 text-xs font-semibold text-brand-700 dark:text-brand-300">Close</button></div>${recent.length?recent.map(m=>`<div class="flex items-center justify-between gap-2 border-t border-slate-100 py-2 first:border-0 dark:border-slate-700"><div class="min-w-0"><div class="text-xs font-semibold">${ownerEscape(m.type)} · ${ownerEscape(m.voucher||'')}</div><div class="text-[11px] text-slate-500">${ownerEscape(displayVoucherDate(m.date.slice(0,10)))}</div></div><div class="shrink-0 text-right"><div class="text-xs font-bold ${m.delta<0?'text-amber-700':'text-emerald-700'}">${m.delta>0?'+':''}${ownerNumber(m.delta)} ${ownerEscape(item.uom)}</div><div class="text-[10px] text-slate-500">Balance ${ownerNumber(m.balance)}</div></div></div>`).join(''):'<p class="py-2 text-xs text-slate-500">No posted stock movements.</p>'}</div>`;}
 
         /*************************************************************
          * DASHBOARD & CHARTS
@@ -2430,7 +2466,6 @@
             let toDate = document.getElementById('ledger-filter-to').value;
             let itemId = document.getElementById('ledger-filter-item').value;
             let type = document.getElementById('ledger-filter-type').value;
-            let voucherNo = (document.getElementById('ledger-filter-voucher').value || '').toLowerCase();
 
             // Build linear transaction ledger entries
             let ledgerEntries = [];
@@ -2520,9 +2555,12 @@
                 let matchDate = (!fromDate || e.date >= fromDate) && (!toDate || e.date <= toDate + ' 23:59');
                 let matchItem = !itemId || e.itemId === itemId;
                 let matchType = !type || e.type.includes(type);
-                let matchVoucher = !voucherNo || e.voucherNo.toLowerCase().includes(voucherNo);
-                return matchDate && matchItem && matchType && matchVoucher;
+                return matchDate && matchItem && matchType;
             });
+
+            const sortKey=ledgerSortState.key, direction=ledgerSortState.direction==='asc'?1:-1;
+            filtered.sort((a,b)=>{const av=a[sortKey],bv=b[sortKey],cmp=typeof av==='number'&&typeof bv==='number'?av-bv:String(av??'').localeCompare(String(bv??''),undefined,{numeric:true,sensitivity:'base'});return cmp*direction;});
+            updateLedgerSortIndicators();
 
             if (filtered.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="10" class="p-6 text-center text-slate-400">No ledger transactions found matching filters.</td></tr>`;
@@ -2552,9 +2590,11 @@
             document.getElementById('ledger-filter-to').value = '';
             document.getElementById('ledger-filter-item').value = '';
             document.getElementById('ledger-filter-type').value = '';
-            document.getElementById('ledger-filter-voucher').value = '';
             renderStockLedger();
         }
+
+        function sortLedgerTable(key){if(ledgerSortState.key===key)ledgerSortState.direction=ledgerSortState.direction==='asc'?'desc':'asc';else{ledgerSortState.key=key;ledgerSortState.direction=key==='date'?'desc':'asc';}renderStockLedger();}
+        function updateLedgerSortIndicators(){for(const key of ['date','voucherNo','type','itemName','ref','openBalance','qtyIn','qtyOut','qtyAdj','closeBalance']){const node=document.getElementById(`sort-ledger-${key}`);if(node)node.innerText=ledgerSortState.key===key?(ledgerSortState.direction==='asc'?'▲':'▼'):'';}}
 
         /*************************************************************
          * GRN VOUCHERS CRUD
@@ -2562,24 +2602,24 @@
         function renderGrnTable() {
             let tbody = document.getElementById('grn-vouchers-table');
             tbody.innerHTML = '';
+            updateVoucherSortIndicators('GRN');
 
             if (dbVouchersGrn.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-slate-400">No Goods Received Notes recorded.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-400">No Goods Received Notes recorded.</td></tr>`;
                 return;
             }
 
-            dbVouchersGrn.forEach(v => {
+            sortedVouchers('GRN').forEach(v => {
                 let statusBadge = v.status === 'Posted' ? 'bg-emerald-100 text-emerald-800' :
                                   v.status === 'Draft' ? 'bg-slate-100 text-slate-800' : 'bg-rose-100 text-rose-800';
 
                 tbody.innerHTML += `
                     <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
                         <td class="p-3 font-mono font-bold text-brand-600">${v.no}</td>
-                        <td class="p-3 font-mono">${v.date}</td>
-                        <td class="p-3 font-semibold">${v.vendor}</td>
-                        <td class="p-3 text-slate-500">${v.ref || '-'}</td>
-                        <td class="p-3 text-right font-mono">${v.items.length}</td>
-                        <td class="p-3 text-right font-mono font-bold text-emerald-600">${companyConfig.currency}${v.grandTotal.toFixed(2)}</td>
+                        <td class="p-3 font-mono">${displayVoucherDate(v.date)}</td>
+                        <td class="p-3 font-semibold">${voucherItemMarkup(v,'GRN')}</td>
+                        <td class="p-3 text-right font-mono">${voucherQtyMarkup(v,'GRN')}</td>
+                        <td class="p-3 text-right font-mono font-bold text-emerald-600">${escapeHtml(companyConfig.currency)}${voucherAmount(v,'GRN').toFixed(2)}</td>
                         <td class="p-3 text-center"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${statusBadge}">${v.status}</span></td>
                         <td class="p-3 text-center space-x-2">
                             <button onclick="viewVoucherDetail('GRN', '${v.id}')" class="text-sky-700 hover:text-sky-900" title="View voucher" aria-label="View ${v.no}"><i class="fa-solid fa-eye"></i></button>
@@ -2606,7 +2646,7 @@
             openModal('modal-grn');
         }
 
-        function editGrnVoucher(v){openGrnModal();const form=document.getElementById('form-grn');document.getElementById('grn-id').value=v.id;form.dataset.status=v.status==='Posted'?'Posted':'Draft';document.getElementById('grn-no').value=v.no;document.getElementById('grn-date').value=v.date;document.getElementById('grn-vendor').value=v.vendor;document.getElementById('grn-ref').value=v.ref||'';document.getElementById('grn-remarks').value=v.receivedBy||v.remarks||'';document.getElementById('grn-rows-body').innerHTML='';(v.items||[]).forEach(item=>{addGrnRow();const row=document.querySelector('#grn-rows-body tr:last-child'),rowId=row.id;const select=row.querySelector('select');select.value=item.itemId;onGrnItemSelect(rowId,item.itemId);row.querySelector('.grn-qty').value=item.qty;row.querySelector('.grn-rate').value=item.rate;calcGrnRow(rowId);});if(!(v.items||[]).length)addGrnRow();calcGrnGrandTotal();}
+        function editGrnVoucher(v){openGrnModal();const form=document.getElementById('form-grn');document.getElementById('grn-id').value=v.id;form.dataset.status=v.status==='Posted'?'Posted':'Draft';document.getElementById('grn-no').value=v.no;document.getElementById('grn-date').value=v.date;document.getElementById('grn-vendor').value=v.vendor;document.getElementById('grn-ref').value=v.ref||'';document.getElementById('grn-remarks').value=v.receivedBy||v.remarks||'';document.getElementById('grn-rows-body').innerHTML='';(v.items||[]).forEach(item=>{addGrnRow();const row=document.querySelector('#grn-rows-body tr:last-child'),rowId=row.id;setVoucherItemSelection(rowId,'GRN',item.itemId);row.querySelector('.grn-qty').value=item.qty;row.querySelector('.grn-rate').value=item.rate;calcGrnRow(rowId);});if(!(v.items||[]).length)addGrnRow();calcGrnGrandTotal();}
 
         function addGrnRow() {
             let tbody = document.getElementById('grn-rows-body');
@@ -2618,7 +2658,8 @@
             tr.id = rowId;
             tr.innerHTML = `
                 <td class="p-2">
-                    <select onchange="onGrnItemSelect('${rowId}', this.value)" class="w-full p-1.5 bg-slate-50 dark:bg-slate-700 border rounded font-medium">
+                        <input type="search" class="voucher-item-search w-full p-1.5 bg-slate-50 dark:bg-slate-700 border rounded font-medium" data-voucher-type="GRN" autocomplete="off" placeholder="Type item code or name…" oninput="showVoucherItemAutocomplete(this,'GRN',true)" onfocus="showVoucherItemAutocomplete(this,'GRN')" onkeydown="handleVoucherAutocompleteKeydown(event)" onblur="scheduleVoucherAutocompleteHide(this)">
+                        <select onchange="onGrnItemSelect('${rowId}', this.value)" class="hidden">
                         <option value="">-- Select Material Item --</option>
                         ${options}
                     </select>
@@ -2720,23 +2761,23 @@
         function renderIssueTable() {
             let tbody = document.getElementById('issue-vouchers-table');
             tbody.innerHTML = '';
+            updateVoucherSortIndicators('ISSUE');
 
             if (dbVouchersIssue.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-slate-400">No Material Issue vouchers recorded.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-400">No Material Issue vouchers recorded.</td></tr>`;
                 return;
             }
 
-            dbVouchersIssue.forEach(v => {
+            sortedVouchers('ISSUE').forEach(v => {
                 let statusBadge = v.status === 'Posted' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800';
 
                 tbody.innerHTML += `
                     <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
                         <td class="p-3 font-mono font-bold text-amber-600">${v.no}</td>
-                        <td class="p-3 font-mono">${v.date}</td>
-                        <td class="p-3 font-semibold">${v.dept}</td>
-                        <td class="p-3 text-slate-500">${v.issuedTo || '-'}</td>
-                        <td class="p-3 text-right font-mono">${v.items.length}</td>
-                        <td class="p-3 text-right font-mono font-bold text-amber-600">${companyConfig.currency}${v.grandTotal.toFixed(2)}</td>
+                        <td class="p-3 font-mono">${displayVoucherDate(v.date)}</td>
+                        <td class="p-3 font-semibold">${voucherItemMarkup(v,'ISSUE')}</td>
+                        <td class="p-3 text-right font-mono">${voucherQtyMarkup(v,'ISSUE')}</td>
+                        <td class="p-3 text-right font-mono font-bold text-amber-600">${escapeHtml(companyConfig.currency)}${voucherAmount(v,'ISSUE').toFixed(2)}</td>
                         <td class="p-3 text-center"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${statusBadge}">${v.status}</span></td>
                         <td class="p-3 text-center space-x-2">
                             <button onclick="viewVoucherDetail('ISSUE', '${v.id}')" class="text-sky-700 hover:text-sky-900" title="View voucher" aria-label="View ${v.no}"><i class="fa-solid fa-eye"></i></button>
@@ -2767,7 +2808,7 @@
         }
 
         function issueAvailableForEdit(itemId){let qty=getItemCalculatedStock(itemId).current;const original=dbVouchersIssue.find(x=>x.id===editingIssueVoucherId);if(original&&original.status==='Posted')qty+=(original.items||[]).filter(x=>x.itemId===itemId).reduce((sum,x)=>sum+(Number(x.qty)||0),0);return qty;}
-        function editIssueVoucher(v){openIssueModal();editingIssueVoucherId=v.id;const form=document.getElementById('form-issue');document.getElementById('issue-id').value=v.id;form.dataset.status=v.status==='Posted'?'Posted':'Draft';document.getElementById('issue-no').value=v.no;document.getElementById('issue-date').value=v.date;document.getElementById('issue-dept').value=v.dept;document.getElementById('issue-to').value=v.issuedTo||'';document.getElementById('issue-purpose').value=v.purpose||'';document.getElementById('issue-rows-body').innerHTML='';(v.items||[]).forEach(item=>{addIssueRow();const row=document.querySelector('#issue-rows-body tr:last-child'),rowId=row.id,select=row.querySelector('select');select.value=item.itemId;onIssueItemSelect(rowId,item.itemId);row.querySelector('.issue-qty').value=item.qty;row.querySelector('.issue-rate').value=item.rate;calcIssueRow(rowId);});if(!(v.items||[]).length)addIssueRow();calcIssueGrandTotal();validateIssueStock();}
+        function editIssueVoucher(v){openIssueModal();editingIssueVoucherId=v.id;const form=document.getElementById('form-issue');document.getElementById('issue-id').value=v.id;form.dataset.status=v.status==='Posted'?'Posted':'Draft';document.getElementById('issue-no').value=v.no;document.getElementById('issue-date').value=v.date;document.getElementById('issue-dept').value=v.dept;document.getElementById('issue-to').value=v.issuedTo||'';document.getElementById('issue-purpose').value=v.purpose||'';document.getElementById('issue-rows-body').innerHTML='';(v.items||[]).forEach(item=>{addIssueRow();const row=document.querySelector('#issue-rows-body tr:last-child'),rowId=row.id;setVoucherItemSelection(rowId,'ISSUE',item.itemId);row.querySelector('.issue-qty').value=item.qty;row.querySelector('.issue-rate').value=item.rate;calcIssueRow(rowId);});if(!(v.items||[]).length)addIssueRow();calcIssueGrandTotal();validateIssueStock();}
 
         function addIssueRow() {
             let tbody = document.getElementById('issue-rows-body');
@@ -2779,7 +2820,8 @@
             tr.id = rowId;
             tr.innerHTML = `
                 <td class="p-2">
-                    <select onchange="onIssueItemSelect('${rowId}', this.value)" class="w-full p-1.5 bg-slate-50 dark:bg-slate-700 border rounded font-medium">
+                        <input type="search" class="voucher-item-search w-full p-1.5 bg-slate-50 dark:bg-slate-700 border rounded font-medium" data-voucher-type="ISSUE" autocomplete="off" placeholder="Type item code or name…" oninput="showVoucherItemAutocomplete(this,'ISSUE',true)" onfocus="showVoucherItemAutocomplete(this,'ISSUE')" onkeydown="handleVoucherAutocompleteKeydown(event)" onblur="scheduleVoucherAutocompleteHide(this)">
+                        <select onchange="onIssueItemSelect('${rowId}', this.value)" class="hidden">
                         <option value="">-- Select Material Item --</option>
                         ${options}
                     </select>
@@ -2913,25 +2955,23 @@
         function renderAdjTable() {
             let tbody = document.getElementById('adj-vouchers-table');
             tbody.innerHTML = '';
+            updateVoucherSortIndicators('ADJ');
 
             if (dbVouchersAdj.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="10" class="p-6 text-center text-slate-400">No stock adjustments recorded.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-400">No stock adjustments recorded.</td></tr>`;
                 return;
             }
 
-            dbVouchersAdj.forEach(v => {
+            sortedVouchers('ADJ').forEach(v => {
                 let typeBadge = v.type === 'Increase' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800';
 
                 tbody.innerHTML += `
                     <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
                         <td class="p-3 font-mono font-bold text-purple-600">${v.no}</td>
-                        <td class="p-3 font-mono">${v.date}</td>
-                        <td class="p-3 font-semibold">${v.itemName}</td>
-                        <td class="p-3 text-right font-mono">${v.systemStock}</td>
-                        <td class="p-3 text-right font-mono font-bold">${v.physicalStock}</td>
-                        <td class="p-3 text-right font-mono font-bold ${v.diff>=0?'text-emerald-600':'text-rose-600'}">${v.diff > 0 ? '+'+v.diff : v.diff}</td>
-                        <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${typeBadge}">${v.type}</span></td>
-                        <td class="p-3 text-slate-500">${v.reason}</td>
+                        <td class="p-3 font-mono">${displayVoucherDate(v.date)}</td>
+                        <td class="p-3 font-semibold">${voucherItemMarkup(v,'ADJ')}</td>
+                        <td class="p-3 text-right font-mono">${voucherQtyMarkup(v,'ADJ')}</td>
+                        <td class="p-3 text-right font-mono font-bold text-purple-600">${escapeHtml(companyConfig.currency)}${voucherAmount(v,'ADJ').toFixed(2)}</td>
                         <td class="p-3 text-center"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800">${v.status}</span></td>
                         <td class="p-3 text-center">
                             <button onclick="viewVoucherDetail('ADJ', '${v.id}')" class="text-sky-700 hover:text-sky-900" title="View voucher" aria-label="View ${v.no}"><i class="fa-solid fa-eye"></i></button>
@@ -2953,6 +2993,7 @@
             document.getElementById('adj-date').value = localDateString();
 
             populateSelect('adj-item', dbItems.map(i => ({ value: i.id, label: i.code + ' - ' + i.name })));
+            document.getElementById('adj-item-search').value='';
             openModal('modal-adj');
         }
 
@@ -2965,7 +3006,7 @@
             }
         }
 
-        function editAdjVoucher(v){openAdjModal();editingAdjVoucherId=v.id;document.getElementById('adj-id').value=v.id;document.getElementById('adj-no').value=v.no;document.getElementById('adj-date').value=v.date;document.getElementById('adj-item').value=v.itemId;onAdjItemChange(v.itemId);const baseline=Number(document.getElementById('adj-system-stock').value)||0;document.getElementById('adj-physical-stock').value=baseline+(Number(v.diff)||0);document.getElementById('adj-reason').value=v.reason||'';calcAdjDiff();}
+        function editAdjVoucher(v){openAdjModal();editingAdjVoucherId=v.id;document.getElementById('adj-id').value=v.id;document.getElementById('adj-no').value=v.no;document.getElementById('adj-date').value=v.date;setAdjustmentItemSelection(v.itemId);const baseline=Number(document.getElementById('adj-system-stock').value)||0;document.getElementById('adj-physical-stock').value=baseline+(Number(v.diff)||0);document.getElementById('adj-reason').value=v.reason||'';calcAdjDiff();}
 
         function calcAdjDiff() {
             let sys = Number(document.getElementById('adj-system-stock').value) || 0;
