@@ -884,7 +884,7 @@
                         <select id="report-filter-category" class="p-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg"><option value="">All Categories</option></select>
                         <select id="report-filter-vendor" class="p-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg"><option value="">All Vendors</option></select>
                         <select id="report-filter-movement" aria-label="Stock movement type" class="p-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
-                            <option value="both" selected>Received + Issued</option>
+                            <option value="both" selected>All (Received + Issued)</option>
                             <option value="GRN">Received only (GRN)</option>
                             <option value="Issue">Issued only (Issue)</option>
                         </select>
@@ -3484,7 +3484,7 @@
             const entries = [];
             dbItems.forEach(i => { if (+i.openingQty) entries.push({date:'2026-01-01 00:00',voucherNo:'OPENING',type:'Opening',itemId:i.id,itemName:i.name,ref:'Opening Balance',qtyIn:+i.openingQty,qtyOut:0,qtyAdj:0}); });
             dbVouchersGrn.filter(v=>v.status==='Posted').forEach(v=>(v.items||[]).forEach(l=>entries.push({date:v.date+' 10:00',voucherNo:v.no,type:'GRN',itemId:l.itemId,itemName:l.itemName,ref:v.vendor,qtyIn:+l.qty||0,qtyOut:0,qtyAdj:0})));
-            dbVouchersIssue.filter(v=>v.status==='Posted').forEach(v=>(v.items||[]).forEach(l=>entries.push({date:v.date+' 14:00',voucherNo:v.no,type:'Issue',itemId:l.itemId,itemName:l.itemName,ref:v.dept,qtyIn:0,qtyOut:+l.qty||0,qtyAdj:0})));
+            dbVouchersIssue.filter(v=>v.status==='Posted').forEach(v=>(v.items||[]).forEach(l=>entries.push({date:v.date+' 14:00',voucherNo:v.no,type:'Issue',itemId:l.itemId,itemName:l.itemName,ref:v.issuedTo||v.dept||'',qtyIn:0,qtyOut:+l.qty||0,qtyAdj:0})));
             dbVouchersAdj.filter(v=>v.status==='Posted').forEach(a=>entries.push({date:a.date+' 16:00',voucherNo:a.no,type:a.type==='Increase'?'Adjustment Increase':'Adjustment Decrease',itemId:a.itemId,itemName:a.itemName,ref:a.reason,qtyIn:0,qtyOut:0,qtyAdj:+a.diff||0}));
             entries.sort((a,b)=>new Date(a.date)-new Date(b.date));
             const balances={}; entries.forEach(e=>{const open=balances[e.itemId]||0;e.openBalance=open;e.closeBalance=open+e.qtyIn-e.qtyOut+e.qtyAdj;balances[e.itemId]=e.closeBalance;});
@@ -3677,9 +3677,9 @@
                 });
             } else if (currentReportType === 'period') {
                 document.getElementById('report-header-title').innerText = 'PERIOD-WISE STOCK MOVEMENT REPORT';
-                head.innerHTML = '<th class="p-2">Date</th><th class="p-2">Voucher</th><th class="p-2">Type</th><th class="p-2">Item</th><th class="p-2">Party / Reference</th><th class="p-2 text-right">Qty In</th><th class="p-2 text-right">Qty Out</th><th class="p-2">Status</th>';
+                head.innerHTML = '<th class="p-2">Date</th><th class="p-2">Voucher</th><th class="p-2">Type</th><th class="p-2">Item</th><th class="p-2">Party / Person</th><th class="p-2 text-right">Qty In</th><th class="p-2 text-right">Qty Out</th><th class="p-2 text-right">Balance</th><th class="p-2">Status</th>';
                 const rows = getLedgerEntries().filter(e => (!from || e.date.slice(0,10) >= from) && (!to || e.date.slice(0,10) <= to) && (!category || (dbItems.find(i => i.id === e.itemId) || {}).category === category) && (!vendor || e.ref === vendor) && (movement === 'both' ? ['GRN','Issue'].includes(e.type) : e.type === movement));
-                rows.forEach(e => body.insertAdjacentHTML('beforeend', `<tr><td class="p-2">${displayVoucherDate(e.date)}</td><td class="p-2">${e.voucherNo}</td><td class="p-2">${e.type}</td><td class="p-2">${e.itemName}</td><td class="p-2">${e.ref || ''}</td><td class="p-2 text-right">${e.qtyIn || 0}</td><td class="p-2 text-right">${e.qtyOut || 0}</td><td class="p-2">Posted</td></tr>`));
+                rows.forEach(e => body.insertAdjacentHTML('beforeend', `<tr><td class="p-2">${displayVoucherDate(e.date)}</td><td class="p-2">${e.voucherNo}</td><td class="p-2">${e.type}</td><td class="p-2">${e.itemName}</td><td class="p-2">${e.ref || ''}</td><td class="p-2 text-right">${e.qtyIn || 0}</td><td class="p-2 text-right">${e.qtyOut || 0}</td><td class="p-2 text-right font-semibold">${e.closeBalance ?? 0}</td><td class="p-2">Posted</td></tr>`));
             } else if (currentReportType === 'category') {
                 document.getElementById('report-header-title').innerText = 'CATEGORY-WISE STOCK REPORT';
                 head.innerHTML = '<th class="p-2">Category</th><th class="p-2">Item Count</th><th class="p-2 text-right">Current Qty</th><th class="p-2 text-right">Inventory Value</th>';
