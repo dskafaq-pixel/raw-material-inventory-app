@@ -62,6 +62,11 @@
         }
         @media(min-width:768px){#nav-owner-mobile{display:none!important}}
         @media(max-width:767px){body.owner-view-mode #sidebar{display:none!important}body.owner-view-mode main{padding:0!important;padding-bottom:76px!important}body.owner-view-mode #view-owner-mobile{min-height:calc(100dvh - 64px);padding:16px}body.owner-view-mode #owner-mobile-bottom-nav{display:grid!important}body.owner-view-mode #toggle-sidebar-btn,body.owner-view-mode #owner-full-app-btn{display:none!important}}
+        body.inventory-read-only #nav-vouchers-grn,body.inventory-read-only #nav-vouchers-issue,body.inventory-read-only #nav-vouchers-adj,body.inventory-read-only #nav-items,body.inventory-read-only #nav-categories,body.inventory-read-only #nav-uoms,body.inventory-read-only #nav-vendors,body.inventory-read-only #nav-working-log,body.inventory-read-only #nav-trash-bin,body.inventory-read-only #nav-settings,body.inventory-read-only #quick-action-btn,body.inventory-read-only #quick-action-menu{display:none!important}
+        body.inventory-read-only [onclick*="edit"],body.inventory-read-only [onclick*="delete"],body.inventory-read-only [onclick*="save"],body.inventory-read-only [onclick*="post"],body.inventory-read-only [onclick*="add"],body.inventory-read-only [onclick*="restore"],body.inventory-read-only [onclick*="openGrnModal"],body.inventory-read-only [onclick*="openIssueModal"],body.inventory-read-only [onclick*="openAdjModal"],body.inventory-read-only [onclick*="openItemModal"]{display:none!important}
+        body.inventory-read-only > .flex.pt-16{padding-top:6.5rem!important}
+        #inventory-read-only-banner{display:none}
+        body.inventory-read-only #inventory-read-only-banner{display:block}
         table{border-collapse:collapse}table th,table td{border:1px solid #e2e8f0!important}.dark table th,.dark table td{border-color:#334155!important}
         /* Printable Voucher CSS */
         @media print {
@@ -167,6 +172,8 @@
             </div>
         </div>
     </header>
+
+    <div id="inventory-read-only-banner" class="fixed top-16 left-0 right-0 z-30 border-b border-blue-200 bg-blue-50 px-4 py-2 text-center text-xs font-semibold text-blue-800 shadow-sm dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">Read-only account · You can view inventory and reports, but cannot make or save changes.</div>
 
     <!-- MAIN CONTAINER -->
     <div class="flex pt-16 flex-1 relative overflow-hidden">
@@ -573,7 +580,7 @@
                         <table class="w-full text-xs text-left">
                             <thead class="bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 uppercase">
                                 <tr>
-                                    <th class="p-3"><button onclick="sortLedgerTable('date')">Date &amp; Time <span id="sort-ledger-date">▼</span></button></th>
+                                    <th class="p-3"><button onclick="sortLedgerTable('date')">Date <span id="sort-ledger-date">▼</span></button></th>
                                     <th class="p-3"><button onclick="sortLedgerTable('voucherNo')">Voucher # <span id="sort-ledger-voucherNo"></span></button></th>
                                     <th class="p-3"><button onclick="sortLedgerTable('type')">Type <span id="sort-ledger-type"></span></button></th>
                                     <th class="p-3"><button onclick="sortLedgerTable('itemName')">Item Name <span id="sort-ledger-itemName"></span></button></th>
@@ -876,6 +883,11 @@
                         </select>
                         <select id="report-filter-category" class="p-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg"><option value="">All Categories</option></select>
                         <select id="report-filter-vendor" class="p-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg"><option value="">All Vendors</option></select>
+                        <select id="report-filter-movement" aria-label="Stock movement type" class="p-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
+                            <option value="both" selected>Received + Issued</option>
+                            <option value="GRN">Received only (GRN)</option>
+                            <option value="Issue">Issued only (Issue)</option>
+                        </select>
                         <button onclick="generateReport(true)" class="p-2 bg-brand-600 text-white rounded-lg font-semibold">Generate Report</button>
                         <button onclick="resetReportFilters()" class="p-2 bg-slate-200 dark:bg-slate-700 rounded-lg font-semibold">Reset Filters</button>
                     </div>
@@ -1680,6 +1692,7 @@
         let supabaseReconnectAttempt = 0;
         let supabaseReadyUserId = null;
         let supabaseAccessGranted = false;
+        let supabaseUserRole = '';
         let editingIssueVoucherId = '';
         let editingAdjVoucherId = '';
         let supabaseClientId = sessionStorage.getItem("erp_supabaseClientId") || crypto.randomUUID();
@@ -1693,7 +1706,7 @@
         const ledgerSortState={key:'date',direction:'desc'};
 
         function localDateString(date=new Date()) { return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`; }
-        function displayVoucherDate(value){const s=String(value||'');const m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);if(m)return `${m[3]}-${m[2]}-${m[1]}`;const d=new Date(s);return Number.isNaN(d.getTime())?s:`${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;}
+        function displayVoucherDate(value,includeTime=false){const s=String(value||'');const m=s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/);if(m)return `${m[3]}-${m[2]}-${m[1]}${includeTime&&m[4]?' '+m[4]:''}`;const d=new Date(s);if(Number.isNaN(d.getTime()))return s;const date=`${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;return `${date}${includeTime&&/[ T,]\s*\d{1,2}:\d{2}/.test(s)?' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'):''}`;}
         function voucherLines(v,type){if(type==='ADJ'){const item=dbItems.find(i=>i.id===v.itemId);return [{name:v.itemName||item?.name||'Item',code:v.itemCode||item?.code||'',uom:item?.uom||'',qty:Number(v.physicalStock)||0}];}return Array.isArray(v.items)?v.items.map(x=>({name:x.itemName||'',code:x.itemCode||'',uom:x.uom||'',qty:Number(x.qty)||0})):[];}
         function voucherQuantity(v,type){return type==='ADJ'?Number(v.physicalStock)||0:voucherLines(v,type).reduce((n,x)=>n+x.qty,0);}
         function voucherAmount(v,type){if(type==='ADJ'){const item=dbItems.find(i=>i.id===v.itemId);return Math.abs(Number(v.diff)||0)*(Number(item?.price)||0);}return Number(v.grandTotal)||((v.items||[]).reduce((n,x)=>n+(Number(x.total)||((Number(x.qty)||0)*(Number(x.rate)||0))),0));}
@@ -1777,6 +1790,7 @@
 
         // Local Storage Sync
         function saveToLocalStorage() {
+            if(supabaseUserRole==='viewer'&&!supabaseApplyingRemote)return;
             try {
                 localStorage.setItem('erp_companyConfig', JSON.stringify(companyConfig));
                 localStorage.setItem('erp_dbItems', JSON.stringify(dbItems));
@@ -1806,6 +1820,10 @@
         function runVoucherAutoBackup(status){if(status==='Posted'&&(companyConfig.backupFreq||'post')==='post')downloadBackupJson();}
 
         function setSupabaseAccess(allowed){supabaseAccessGranted=!!allowed;const gate=document.getElementById('supabase-auth-gate');if(gate)gate.classList.toggle('hidden',!!allowed||activeTab==='settings');}
+        function applyInventoryRoleUI(){
+            const viewer=supabaseUserRole==='viewer';document.body.classList.toggle('inventory-read-only',viewer);
+            if(viewer&& !['dashboard','owner-mobile','inventory-overview','stock-ledger','reports'].includes(activeTab))switchTab('dashboard');
+        }
         function clearLocalInventoryOnSignOut(){dbItems=[];dbCategories=[];dbUoms=[];dbVendors=[];dbVouchersGrn=[];dbVouchersIssue=[];dbVouchersAdj=[];dbWorkingLog=[];dbTrashBin=[];saveToLocalStorage();['erp_lastSyncedInventorySnapshot','erp_autoBackupSnapshot','erp_lastCloudBackupId','erp_cloudRestorePending'].forEach(k=>localStorage.removeItem(k));}
         function setSupabaseStatus(message,isError=false){
             const el=document.getElementById('supabase-cloud-status'),loginStatus=document.getElementById('supabase-login-status');
@@ -1849,9 +1867,9 @@
         async function handleSupabaseSession(user){
             const previouslySignedIn=!!supabaseUser;
             supabaseUser=user||null;
-            if(!supabaseUser){supabaseReadyUserId=null;setSupabaseAccess(false);if(previouslySignedIn)clearLocalInventoryOnSignOut();stopCloudLiveSync();setSupabaseStatus(supabaseClient?'Connected to Supabase. Sign in with a workspace member account.':'Not connected.');return;}
+            if(!supabaseUser){supabaseReadyUserId=null;supabaseUserRole='';applyInventoryRoleUI();setSupabaseAccess(false);if(previouslySignedIn)clearLocalInventoryOnSignOut();stopCloudLiveSync();setSupabaseStatus(supabaseClient?'Connected to Supabase. Sign in with a workspace member account.':'Not connected.');return;}
             if(supabaseReadyUserId===supabaseUser.id)return;
-            supabaseReadyUserId=supabaseUser.id;supabaseStateVersion=0;supabaseLastSyncedSnapshot=null;supabaseLocalDirty=false;
+            supabaseReadyUserId=supabaseUser.id;supabaseUserRole='';applyInventoryRoleUI();supabaseStateVersion=0;supabaseLastSyncedSnapshot=null;supabaseLocalDirty=false;
             setSupabaseStatus('Signed in as '+(supabaseUser.email||'authorized user')+'. Loading shared inventory…');
             await loadSharedInventory();
         }
@@ -1883,8 +1901,14 @@
         async function loadSharedInventory(){
             if(!supabaseClient||!supabaseUser)return;
             try{
+                const membership=await supabaseClient.from('inventory_members').select('role').eq('workspace_id',companyConfig.supabaseWorkspaceId).eq('user_id',supabaseUser.id).maybeSingle();
+                if(membership.error)throw membership.error;
+                if(!membership.data)throw Error('This account is not authorized for the shared inventory workspace.');
+                supabaseUserRole=membership.data.role||'member';applyInventoryRoleUI();
+                if(!['admin','member','viewer'].includes(supabaseUserRole))throw Error('This account has an unsupported workspace role.');
                 let row=await fetchSharedInventory();
                 if(!row){
+                    if(supabaseUserRole==='viewer')throw Error('The shared inventory is not initialized yet. Ask an administrator to sign in first.');
                     // Migrate an existing private cloud snapshot when one exists for this account.
                     const legacy=await supabaseClient.from('inventory_backups').select('backup_data,created_at').eq('owner_id',supabaseUser.id).order('created_at',{ascending:false}).limit(1).maybeSingle();
                     if(legacy.error)throw legacy.error;
@@ -1894,6 +1918,12 @@
                     startCloudLiveSync();return;
                 }
                 if(!Array.isArray(row.payload?.dbItems))throw Error('The shared inventory row has invalid data.');
+                if(supabaseUserRole==='viewer'){
+                    supabaseApplyingRemote=true;try{applyBackupData(row.payload);}finally{supabaseApplyingRemote=false;}
+                    supabaseStateVersion=Number(row.version)||0;supabaseLastSyncedSnapshot=row.payload;supabaseLocalDirty=false;
+                    localStorage.setItem('erp_lastSyncedInventorySnapshot',JSON.stringify(row.payload));
+                    startCloudLiveSync();setSupabaseAccess(true);setSupabaseStatus('Read-only access · live inventory and reports are available.');refreshActiveView();return;
+                }
                 const baseRaw=localStorage.getItem('erp_lastSyncedInventorySnapshot');
                 let base=null;try{base=baseRaw?JSON.parse(baseRaw):null;}catch(_e){}
                 if(!base){const previous=await supabaseClient.from('inventory_backups').select('backup_data').eq('owner_id',supabaseUser.id).order('created_at',{ascending:false}).limit(1).maybeSingle();if(previous.error)throw previous.error;if(Array.isArray(previous.data?.backup_data?.dbItems))base=previous.data.backup_data;}
@@ -1908,13 +1938,14 @@
                     supabaseApplyingRemote=true;try{applyBackupData(row.payload);}finally{supabaseApplyingRemote=false;}
                     supabaseStateVersion=Number(row.version)||0;supabaseLastSyncedSnapshot=row.payload;supabaseLocalDirty=false;
                     localStorage.setItem('erp_lastSyncedInventorySnapshot',JSON.stringify(row.payload));
-                    setSupabaseStatus('Shared inventory loaded. Connecting live updates…');setSupabaseAccess(true);
+                    setSupabaseStatus(supabaseUserRole==='viewer'?'Read-only access · shared inventory loaded. Connecting live updates…':'Shared inventory loaded. Connecting live updates…');setSupabaseAccess(true);
                 }
-                startCloudLiveSync();setSupabaseAccess(true);refreshActiveView();
+                startCloudLiveSync();setSupabaseAccess(true);if(supabaseUserRole==='viewer')setSupabaseStatus('Read-only access · live inventory and reports are available.');refreshActiveView();
             }catch(e){supabaseReadyUserId=null;setSupabaseStatus('Could not load shared inventory: '+e.message+' Check workspace membership and run the SQL setup.',true);}
         }
         async function syncSharedInventory(force){
             if(!supabaseClient||!supabaseUser||!companyConfig.supabaseWorkspaceId)return;
+            if(supabaseUserRole==='viewer'){setSupabaseStatus('Read-only account: inventory changes cannot be saved.',true);return;}
             if(supabaseSyncInFlight){supabaseSyncQueued=true;return;}
             if(!force&&!supabaseLocalDirty)return;
             supabaseSyncInFlight=true;const versionAtStart=supabaseLocalChangeVersion,snapshot=makeBackupSnapshot();
@@ -2080,6 +2111,7 @@
          * UI NAVIGATION & TAB SWITCHING
          *************************************************************/
         function switchTab(tabId) {
+            if(supabaseUserRole==='viewer'&&!['dashboard','owner-mobile','inventory-overview','stock-ledger','reports'].includes(tabId))tabId='dashboard';
             activeTab = tabId;
             document.body.classList.toggle('owner-view-mode',tabId==='owner-mobile');
             if(tabId==='settings'){document.getElementById('supabase-auth-gate')?.classList.add('hidden');}
@@ -2389,7 +2421,7 @@
 
                 tbody.innerHTML += `
                     <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                        <td class="p-2.5 font-mono">${v.date}</td>
+                        <td class="p-2.5 font-mono">${displayVoucherDate(v.date)}</td>
                         <td class="p-2.5 font-bold text-brand-600">${v.no}</td>
                         <td class="p-2.5"><span class="px-2 py-0.5 rounded font-semibold text-[10px] ${v.type==='GRN'?'bg-blue-100 text-blue-800':v.type==='Issue'?'bg-amber-100 text-amber-800':'bg-purple-100 text-purple-800'}">${v.type}</span></td>
                         <td class="p-2.5 font-medium">${party}</td>
@@ -2570,7 +2602,7 @@
             filtered.forEach(e => {
                 tbody.innerHTML += `
                     <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                        <td class="p-3 font-mono">${e.date}</td>
+                        <td class="p-3 font-mono">${displayVoucherDate(e.date)}</td>
                         <td class="p-3 font-bold text-brand-600">${e.voucherNo}</td>
                         <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] font-semibold ${e.type==='GRN'?'bg-emerald-100 text-emerald-800':e.type==='Issue'?'bg-amber-100 text-amber-800':'bg-purple-100 text-purple-800'}">${e.type}</span></td>
                         <td class="p-3 font-semibold text-slate-800 dark:text-slate-100">${e.itemName}</td>
@@ -3122,7 +3154,7 @@
                 balance += h.in - h.out + h.adj;
                 tbody.innerHTML += `
                     <tr>
-                        <td class="p-2 font-mono">${h.date}</td>
+                        <td class="p-2 font-mono">${displayVoucherDate(h.date)}</td>
                         <td class="p-2 font-bold text-brand-600">${h.no}</td>
                         <td class="p-2">${h.type}</td>
                         <td class="p-2 text-slate-500">${h.ref}</td>
@@ -3446,7 +3478,7 @@
             document.getElementById('report-filter-to').value = localDateString(end);
             generateReport();
         }
-        function resetReportFilters(){document.getElementById('report-filter-from').value='';document.getElementById('report-filter-to').value='';document.getElementById('report-filter-period').value='custom';document.getElementById('report-filter-category').value='';document.getElementById('report-filter-vendor').value='';generateReport();}
+        function resetReportFilters(){document.getElementById('report-filter-from').value='';document.getElementById('report-filter-to').value='';document.getElementById('report-filter-period').value='custom';document.getElementById('report-filter-category').value='';document.getElementById('report-filter-vendor').value='';document.getElementById('report-filter-movement').value='both';generateReport();}
 
         function getLedgerEntries() {
             const entries = [];
@@ -3507,7 +3539,7 @@
         }
         function deleteUom(id){smartDeleteMaster('UOM',id);}
         function deleteVendor(id){smartDeleteMaster('Vendor',id);}
-        function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
+        function escapeHtml(value){const raw=String(value??''),text=/^\d{4}-\d{2}-\d{2}$/.test(raw)?displayVoucherDate(raw):raw;return text.replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
         function showRecordDetail(title,record){
             const box=document.getElementById('record-detail-content');
             document.getElementById('record-detail-title').innerText=title;
@@ -3542,9 +3574,18 @@
         }
 
         function generateReport(notify = false) {
+            const movement = document.getElementById('report-filter-movement')?.value || 'both';
+            if (currentReportType !== 'period') {
+                currentReportType = 'period';
+                document.querySelectorAll('.rep-tab-btn').forEach(btn => {
+                    btn.classList.remove('bg-brand-600', 'text-white');
+                    btn.classList.add('bg-slate-100', 'dark:bg-slate-700', 'text-slate-700', 'dark:text-slate-200');
+                });
+                document.getElementById('rep-tab-period')?.classList.add('bg-brand-600', 'text-white');
+            }
             document.getElementById('rep-company-title').innerText = companyConfig.name;
             document.getElementById('rep-company-sub').innerText = companyConfig.tagline || 'RAW MATERIAL INVENTORY MANAGEMENT REPORT';
-            document.getElementById('report-date-stamp').innerText = new Date().toLocaleString();
+            document.getElementById('report-date-stamp').innerText = displayVoucherDate(new Date().toLocaleString(),true);
 
             let head = document.getElementById('report-table-head');
             let body = document.getElementById('report-table-body');
@@ -3637,8 +3678,8 @@
             } else if (currentReportType === 'period') {
                 document.getElementById('report-header-title').innerText = 'PERIOD-WISE STOCK MOVEMENT REPORT';
                 head.innerHTML = '<th class="p-2">Date</th><th class="p-2">Voucher</th><th class="p-2">Type</th><th class="p-2">Item</th><th class="p-2">Party / Reference</th><th class="p-2 text-right">Qty In</th><th class="p-2 text-right">Qty Out</th><th class="p-2">Status</th>';
-                const rows = getLedgerEntries().filter(e => (!from || e.date.slice(0,10) >= from) && (!to || e.date.slice(0,10) <= to) && (!category || (dbItems.find(i => i.id === e.itemId) || {}).category === category) && (!vendor || e.ref === vendor));
-                rows.forEach(e => body.insertAdjacentHTML('beforeend', `<tr><td class="p-2">${e.date.slice(0,10)}</td><td class="p-2">${e.voucherNo}</td><td class="p-2">${e.type}</td><td class="p-2">${e.itemName}</td><td class="p-2">${e.ref || ''}</td><td class="p-2 text-right">${e.qtyIn || 0}</td><td class="p-2 text-right">${e.qtyOut || 0}</td><td class="p-2">Posted</td></tr>`));
+                const rows = getLedgerEntries().filter(e => (!from || e.date.slice(0,10) >= from) && (!to || e.date.slice(0,10) <= to) && (!category || (dbItems.find(i => i.id === e.itemId) || {}).category === category) && (!vendor || e.ref === vendor) && (movement === 'both' ? ['GRN','Issue'].includes(e.type) : e.type === movement));
+                rows.forEach(e => body.insertAdjacentHTML('beforeend', `<tr><td class="p-2">${displayVoucherDate(e.date)}</td><td class="p-2">${e.voucherNo}</td><td class="p-2">${e.type}</td><td class="p-2">${e.itemName}</td><td class="p-2">${e.ref || ''}</td><td class="p-2 text-right">${e.qtyIn || 0}</td><td class="p-2 text-right">${e.qtyOut || 0}</td><td class="p-2">Posted</td></tr>`));
             } else if (currentReportType === 'category') {
                 document.getElementById('report-header-title').innerText = 'CATEGORY-WISE STOCK REPORT';
                 head.innerHTML = '<th class="p-2">Category</th><th class="p-2">Item Count</th><th class="p-2 text-right">Current Qty</th><th class="p-2 text-right">Inventory Value</th>';
@@ -3701,7 +3742,7 @@
             dbTrashBin.forEach((t, index) => {
                 tbody.innerHTML += `
                     <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                        <td class="p-3 font-mono text-slate-500">${t.deletedAt}</td>
+                        <td class="p-3 font-mono text-slate-500">${displayVoucherDate(t.deletedAt,true)}</td>
                         <td class="p-3 font-bold">${t.type}</td>
                         <td class="p-3 font-mono">${t.code}</td>
                         <td class="p-3 font-semibold">${t.name}</td>
@@ -3860,6 +3901,7 @@
         }
 
         function openModal(id) {
+            if(supabaseUserRole==='viewer'&&['modal-item','modal-category','modal-uom','modal-vendor','modal-grn','modal-issue','modal-adj','modal-import'].includes(id)){showToast('This account has read-only access.','error');return;}
             document.getElementById(id).classList.remove('hidden');
         }
 
@@ -3867,6 +3909,16 @@
             document.getElementById(id).classList.add('hidden');
             if(supabasePendingRemote&&!document.querySelector('[id^="modal-"]:not(.hidden)')){const row=supabasePendingRemote;supabasePendingRemote=null;receiveSharedInventory(row);}
         }
+
+        document.addEventListener('submit',event=>{if(supabaseUserRole==='viewer'){event.preventDefault();event.stopImmediatePropagation();showToast('This account has read-only access.','error');}},true);
+        document.addEventListener('click',event=>{
+            if(supabaseUserRole!=='viewer')return;
+            const control=event.target.closest('[onclick]');if(!control)return;
+            const action=control.getAttribute('onclick')||'';
+            if(/\b(edit|delete|save|post|restore|add[A-Z]|clearActivity|processImport|smartDelete|open(?:Grn|Issue|Adj|Item|Category|Uom|Vendor)Modal)\w*/i.test(action)){
+                event.preventDefault();event.stopImmediatePropagation();showToast('This account has read-only access.','error');
+            }
+        },true);
 
         // INIT APP EVENT LISTENERS & SHORTCUTS
         window.addEventListener('DOMContentLoaded', () => {
