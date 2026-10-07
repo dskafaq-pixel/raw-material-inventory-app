@@ -1905,7 +1905,7 @@
                 if(membership.error)throw membership.error;
                 if(!membership.data)throw Error('This account is not authorized for the shared inventory workspace.');
                 supabaseUserRole=membership.data.role||'member';applyInventoryRoleUI();
-                if(!['admin','member','viewer'].includes(supabaseUserRole))throw Error('This account has an unsupported workspace role.');
+                if(!['admin','operator','member','viewer'].includes(supabaseUserRole))throw Error('This account has an unsupported workspace role.');
                 let row=await fetchSharedInventory();
                 if(!row){
                     if(supabaseUserRole==='viewer')throw Error('The shared inventory is not initialized yet. Ask an administrator to sign in first.');
