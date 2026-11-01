@@ -2085,7 +2085,7 @@
             if(!supabaseClient||!supabaseUser||!companyConfig.supabaseWorkspaceId)return;
             if(supabaseLiveChannel){supabaseClient.removeChannel(supabaseLiveChannel);supabaseLiveChannel=null;}
             if(supabasePollTimer)clearInterval(supabasePollTimer);
-            supabasePollTimer=setInterval(pollSharedInventory,15000);
+            supabasePollTimer=setInterval(pollSharedInventory,60000);
             const workspace=companyConfig.supabaseWorkspaceId;
             supabaseLiveChannel=supabaseClient.channel('inventory-workspace-'+workspace)
               .on('postgres_changes',{event:'*',schema:'public',table:'inventory_state',filter:'workspace_id=eq.'+workspace},payload=>receiveSharedInventory(payload.new).catch(e=>setSupabaseStatus('Shared update was not applied: '+e.message,true)))
