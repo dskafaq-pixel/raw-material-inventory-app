@@ -898,9 +898,10 @@
                         <select id="report-filter-category" class="p-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg"><option value="">All Categories</option></select>
                         <select id="report-filter-vendor" class="p-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg"><option value="">All Vendors</option></select>
                         <select id="report-filter-movement" aria-label="Stock movement type" class="p-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
-                            <option value="both" selected>All (Received + Issued)</option>
+                            <option value="both" selected>All (Received + Issued + Adjustments)</option>
                             <option value="GRN">Received only (GRN)</option>
                             <option value="Issue">Issued only (Issue)</option>
+                            <option value="Adjustment">Adjustments only</option>
                         </select>
                         <button onclick="generateReport(true)" class="p-2 bg-brand-600 text-white rounded-lg font-semibold">Generate Report</button>
                         <button onclick="resetReportFilters()" class="p-2 bg-slate-200 dark:bg-slate-700 rounded-lg font-semibold">Reset Filters</button>
@@ -3790,9 +3791,9 @@
                 });
             } else if (currentReportType === 'period') {
                 document.getElementById('report-header-title').innerText = 'PERIOD-WISE STOCK MOVEMENT REPORT';
-                head.innerHTML = '<th class="p-2">Date</th><th class="p-2">Voucher</th><th class="p-2">Type</th><th class="p-2">Item</th><th class="p-2">Party / Person</th><th class="p-2 text-right">Qty In</th><th class="p-2 text-right">Qty Out</th><th class="p-2 text-right">Balance</th><th class="p-2">Status</th>';
-                const rows = getLedgerEntries().filter(e => (!from || e.date.slice(0,10) >= from) && (!to || e.date.slice(0,10) <= to) && (!category || (dbItems.find(i => i.id === e.itemId) || {}).category === category) && (!vendor || e.ref === vendor) && (movement === 'both' ? ['GRN','Issue'].includes(e.type) : e.type === movement));
-                rows.forEach(e => body.insertAdjacentHTML('beforeend', `<tr><td class="p-2">${displayVoucherDate(e.date)}</td><td class="p-2">${e.voucherNo}</td><td class="p-2">${e.type}</td><td class="p-2">${e.itemName}</td><td class="p-2">${e.ref || ''}</td><td class="p-2 text-right">${e.qtyIn || 0}</td><td class="p-2 text-right">${e.qtyOut || 0}</td><td class="p-2 text-right font-semibold">${e.closeBalance ?? 0}</td><td class="p-2">Posted</td></tr>`));
+                head.innerHTML = '<th class="p-2">Date</th><th class="p-2">Voucher</th><th class="p-2">Type</th><th class="p-2">Item</th><th class="p-2">Party / Person</th><th class="p-2 text-right">Qty In</th><th class="p-2 text-right">Qty Out</th><th class="p-2 text-right">Adjustment</th><th class="p-2 text-right">Balance</th><th class="p-2">Status</th>';
+                const rows = getLedgerEntries().filter(e => (!from || e.date.slice(0,10) >= from) && (!to || e.date.slice(0,10) <= to) && (!category || (dbItems.find(i => i.id === e.itemId) || {}).category === category) && (!vendor || e.ref === vendor) && (movement === 'both' ? ['GRN','Issue','Adjustment Increase','Adjustment Decrease'].includes(e.type) : movement === 'Adjustment' ? e.type.startsWith('Adjustment ') : e.type === movement));
+                rows.forEach(e => body.insertAdjacentHTML('beforeend', `<tr><td class="p-2">${displayVoucherDate(e.date)}</td><td class="p-2">${e.voucherNo}</td><td class="p-2">${e.type}</td><td class="p-2">${e.itemName}</td><td class="p-2">${e.ref || ''}</td><td class="p-2 text-right">${e.qtyIn || 0}</td><td class="p-2 text-right">${e.qtyOut || 0}</td><td class="p-2 text-right font-mono ${e.qtyAdj > 0 ? 'text-emerald-600' : e.qtyAdj < 0 ? 'text-rose-600' : ''}">${e.qtyAdj || 0}</td><td class="p-2 text-right font-semibold">${e.closeBalance ?? 0}</td><td class="p-2">Posted</td></tr>`));
             } else if (currentReportType === 'category') {
                 document.getElementById('report-header-title').innerText = 'CATEGORY-WISE STOCK REPORT';
                 head.innerHTML = '<th class="p-2">Category</th><th class="p-2">Item Count</th><th class="p-2 text-right">Current Qty</th><th class="p-2 text-right">Inventory Value</th>';
