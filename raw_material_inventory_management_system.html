@@ -1691,6 +1691,9 @@
         let dbVouchersGrn = [];
         let dbVouchersIssue = [];
         let dbVouchersAdj = [];
+        let inventoryStockSummaryCache = null;
+        let supabaseRetryTimer = null;
+        let supabaseRetryAttempt = 0;
         let dbWorkingLog = [];
         let dbTrashBin = [];
         let supabaseClient = null;
@@ -1758,6 +1761,7 @@
 
         // Sample Pre-populated Data Initialization
         function initSampleData() {
+            inventoryStockSummaryCache = null;
             // Categories
             dbCategories = [
                 { id: 'cat-1', code: 'CAT-01', name: 'Aluminium', subcategories: ['Ingot', 'Sheet', 'Extrusion'], desc: 'Raw aluminium materials', status: 'Active' },
@@ -1816,6 +1820,7 @@
 
         // Local Storage Sync
         function saveToLocalStorage() {
+            inventoryStockSummaryCache = null;
             if(isLocalCompanyPreview)return;
             if(supabaseUserRole==='viewer'&&!supabaseApplyingRemote)return;
             try {
@@ -1887,7 +1892,7 @@
                 if(supabaseLocalDirty&&!options.discardLocal){await syncSharedInventory(true);if(supabaseLocalDirty)throw Error('This company still has unsaved changes. Check the connection before switching.');}
                 stopCloudLiveSync();toggleCompanySwitcher(false);
                 activeWorkspaceId=workspaceId;companyConfig.supabaseWorkspaceId=workspaceId;localStorage.setItem('erp_activeWorkspace:'+supabaseUser.id,workspaceId);
-                dbItems=[];dbCategories=[];dbUoms=[];dbVendors=[];dbVouchersGrn=[];dbVouchersIssue=[];dbVouchersAdj=[];dbWorkingLog=[];dbTrashBin=[];
+                inventoryStockSummaryCache=null;dbItems=[];dbCategories=[];dbUoms=[];dbVendors=[];dbVouchersGrn=[];dbVouchersIssue=[];dbVouchersAdj=[];dbWorkingLog=[];dbTrashBin=[];
                 supabaseStateVersion=0;supabaseLastSyncedSnapshot=null;supabaseLocalDirty=false;supabasePendingRemote=null;
                 await loadSharedInventory({preserveLocal:false,companiesLoaded:true});
             }catch(e){setSupabaseStatus('Could not switch company: '+e.message,true);}
@@ -1971,6 +1976,7 @@
         async function submitSupabaseLogin(){return supabaseLoginMode==='signup'?supabaseSignUp():supabaseSignIn();}
         async function supabaseSignOut(){if(!supabaseClient)return;const {error}=await supabaseClient.auth.signOut();if(error)setSupabaseStatus('Sign-out failed: '+error.message,true);else{const fields=getSupabaseAuthFields();if(fields.password)fields.password.value='';supabaseReadyUserId=null;supabaseUser=null;setSupabaseAccess(false);clearLocalInventoryOnSignOut();stopCloudLiveSync();switchTab('dashboard');setSupabaseStatus('Signed out.');}}
         function queueSupabaseBackup(){if(!supabaseClient||!supabaseUser||!companyConfig.supabaseWorkspaceId)return;if(supabaseSyncTimer)clearTimeout(supabaseSyncTimer);supabaseSyncTimer=setTimeout(()=>{supabaseSyncTimer=null;syncSharedInventory(false);},700);}
+        function scheduleSupabaseRetry(){if(supabaseRetryTimer||!supabaseLocalDirty||!supabaseClient||!supabaseUser)return;const delay=Math.min(60000,1000*Math.pow(2,Math.min(supabaseRetryAttempt++,6)));supabaseRetryTimer=setTimeout(()=>{supabaseRetryTimer=null;if(navigator.onLine!==false)syncSharedInventory(true);},delay);}
         function stableBackupJson(value){if(Array.isArray(value))return '['+value.map(stableBackupJson).join(',')+']';if(value&&typeof value==='object')return '{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+stableBackupJson(value[k])).join(',')+'}';return JSON.stringify(value);}
         function mergeInventoryValue(base,local,remote,path,conflicts){
             if(base===undefined){if(Array.isArray(local)||Array.isArray(remote))base=[];else if((local&&typeof local==='object')||(remote&&typeof remote==='object'))base={};}
@@ -2066,9 +2072,10 @@
                     const saved=Array.isArray(data)?data[0]:data;if(saved&&saved.version!==undefined){supabaseStateVersion=Number(saved.version);supabaseLatestBackupId=String(saved.version);supabaseLatestBackupAt=Date.parse(saved.updated_at)||Date.now();}
                     supabaseLastSyncedSnapshot=snapshot;localStorage.setItem(syncedSnapshotKey(),JSON.stringify(snapshot));
                     if(versionAtStart===supabaseLocalChangeVersion)supabaseLocalDirty=false;else supabaseSyncQueued=true;
+                    supabaseRetryAttempt=0;if(supabaseRetryTimer){clearTimeout(supabaseRetryTimer);supabaseRetryTimer=null;}
                     setSupabaseStatus('Connected · all authorized devices share this inventory. Last saved '+new Date(supabaseLatestBackupAt||Date.now()).toLocaleTimeString()+'.');setSupabaseAccess(true);
                 }
-            }catch(e){console.error('Supabase inventory save failed',e);setSupabaseStatus('Inventory save failed: '+e.message+'. Your local copy is retained; it will retry when the connection returns.',true);supabaseLocalDirty=true;}
+            }catch(e){console.error('Supabase inventory save failed',e);setSupabaseStatus('Inventory save failed: '+e.message+'. Your local copy is retained; it will retry when the connection returns.',true);supabaseLocalDirty=true;scheduleSupabaseRetry();}
             finally{supabaseSyncInFlight=false;if(supabaseSyncQueued){supabaseSyncQueued=false;setTimeout(()=>syncSharedInventory(true),250);}}
         }
         async function createCloudBackup(){
@@ -2097,7 +2104,7 @@
             });
         }
         function scheduleRealtimeReconnect(){if(supabaseReconnectTimer||!supabaseClient||!supabaseUser)return;const delay=Math.min(30000,1000*Math.pow(2,supabaseReconnectAttempt++));supabaseReconnectTimer=setTimeout(()=>{supabaseReconnectTimer=null;startCloudLiveSync();},delay);}
-        function stopCloudLiveSync(){if(supabaseSyncTimer){clearTimeout(supabaseSyncTimer);supabaseSyncTimer=null;}if(supabasePollTimer){clearInterval(supabasePollTimer);supabasePollTimer=null;}if(supabaseReconnectTimer){clearTimeout(supabaseReconnectTimer);supabaseReconnectTimer=null;}if(supabaseCompanyRefreshTimer){clearTimeout(supabaseCompanyRefreshTimer);supabaseCompanyRefreshTimer=null;}if(supabaseClient&&supabaseLiveChannel)supabaseClient.removeChannel(supabaseLiveChannel);supabaseLiveChannel=null;supabaseLatestBackupId=null;supabaseLatestBackupAt=0;}
+        function stopCloudLiveSync(){if(supabaseSyncTimer){clearTimeout(supabaseSyncTimer);supabaseSyncTimer=null;}if(supabaseRetryTimer){clearTimeout(supabaseRetryTimer);supabaseRetryTimer=null;}if(supabasePollTimer){clearInterval(supabasePollTimer);supabasePollTimer=null;}if(supabaseReconnectTimer){clearTimeout(supabaseReconnectTimer);supabaseReconnectTimer=null;}if(supabaseCompanyRefreshTimer){clearTimeout(supabaseCompanyRefreshTimer);supabaseCompanyRefreshTimer=null;}if(supabaseClient&&supabaseLiveChannel)supabaseClient.removeChannel(supabaseLiveChannel);supabaseLiveChannel=null;supabaseLatestBackupId=null;supabaseLatestBackupAt=0;}
         async function pollSharedInventory(){try{const row=await fetchSharedInventory();if(row&&Number(row.version)>supabaseStateVersion)await receiveSharedInventory(row);}catch(e){console.warn('Shared inventory check failed:',e);setSupabaseStatus('Supabase temporarily unavailable. Local changes are retained and will retry.',true);}}
         async function receiveSharedInventory(row){
             if(!row||!row.payload||Number(row.version)<=supabaseStateVersion)return;
@@ -2121,6 +2128,7 @@
         function applyBackupData(d){if(Array.isArray(d.dbItems))dbItems=d.dbItems;if(Array.isArray(d.dbCategories))dbCategories=d.dbCategories;if(Array.isArray(d.dbUoms))dbUoms=d.dbUoms;if(Array.isArray(d.dbVendors))dbVendors=d.dbVendors;if(Array.isArray(d.dbVouchersGrn))dbVouchersGrn=d.dbVouchersGrn;if(Array.isArray(d.dbVouchersIssue))dbVouchersIssue=d.dbVouchersIssue;if(Array.isArray(d.dbVouchersAdj))dbVouchersAdj=d.dbVouchersAdj;if(Array.isArray(d.dbWorkingLog))dbWorkingLog=d.dbWorkingLog;if(Array.isArray(d.dbTrashBin))dbTrashBin=d.dbTrashBin;if(d.companyConfig)companyConfig={...companyConfig,...d.companyConfig};saveToLocalStorage();}
 
         function loadFromLocalStorage() {
+            inventoryStockSummaryCache = null;
             if (localStorage.getItem('erp_dbItems')) {
                 const read=(key,fallback)=>{try{const value=JSON.parse(localStorage.getItem('erp_'+key));return value===null?fallback:value;}catch(e){console.error('Invalid saved data:',key,e);return fallback;}};
                 companyConfig = {...companyConfig,...read('companyConfig',{})};
@@ -2143,57 +2151,46 @@
         /*************************************************************
          * DYNAMIC STOCK CALCULATIONS CORE ENGINE
          *************************************************************/
-        function getItemCalculatedStock(itemId) {
-            let item = dbItems.find(i => i.id === itemId);
-            if (!item) return { opening: 0, received: 0, issued: 0, adjusted: 0, current: 0, status: 'Normal', value: 0 };
-
-            let opening = Number(item.openingQty) || 0;
-            let received = 0;
-            let issued = 0;
-            let adjusted = 0;
-
-            // GRN Received (Posted Vouchers)
-            dbVouchersGrn.filter(v => v.status === 'Posted').forEach(v => {
-                v.items.forEach(line => {
-                    if (line.itemId === itemId) received += Number(line.qty) || 0;
-                });
-            });
-
-            // Issues Outward (Posted Vouchers)
-            dbVouchersIssue.filter(v => v.status === 'Posted').forEach(v => {
-                v.items.forEach(line => {
-                    if (line.itemId === itemId) issued += Number(line.qty) || 0;
-                });
-            });
-
-            // Adjustments
-            dbVouchersAdj.filter(v => v.status === 'Posted' && v.itemId === itemId).forEach(a => {
-                let diff = Number(a.diff) || 0;
-                adjusted += diff;
-            });
-
-            let current = opening + received - issued + adjusted;
-            let price = Number(item.price) || 0;
-            let value = current * price;
-
-            // Status Logic
-            let status = 'Normal';
-            if (current <= 0) {
-                status = 'Out of Stock';
-            } else if (current <= Number(item.reorderLevel)) {
-                status = 'Low Stock';
+        function getInventoryStockSummary() {
+            if (inventoryStockSummaryCache) return inventoryStockSummaryCache;
+            const itemsById = new Map(dbItems.map(item => [item.id, item]));
+            const totals = new Map(dbItems.map(item => [item.id, {
+                opening: Number(item.openingQty) || 0, received: 0, issued: 0, adjusted: 0
+            }]));
+            for (const voucher of dbVouchersGrn) {
+                if (voucher.status !== 'Posted') continue;
+                for (const line of voucher.items || []) {
+                    const total = totals.get(line.itemId);
+                    if (total) total.received += Number(line.qty) || 0;
+                }
             }
+            for (const voucher of dbVouchersIssue) {
+                if (voucher.status !== 'Posted') continue;
+                for (const line of voucher.items || []) {
+                    const total = totals.get(line.itemId);
+                    if (total) total.issued += Number(line.qty) || 0;
+                }
+            }
+            for (const voucher of dbVouchersAdj) {
+                if (voucher.status !== 'Posted') continue;
+                const total = totals.get(voucher.itemId);
+                if (total) total.adjusted += Number(voucher.diff) || 0;
+            }
+            for (const [itemId, total] of totals) {
+                const item = itemsById.get(itemId);
+                const current = total.opening + total.received - total.issued + total.adjusted;
+                const price = Number(item.price) || 0;
+                total.current = current;
+                total.price = price;
+                total.value = current * price;
+                total.status = current <= 0 ? 'Out of Stock' : current <= Number(item.reorderLevel) ? 'Low Stock' : 'Normal';
+            }
+            inventoryStockSummaryCache = totals;
+            return totals;
+        }
 
-            return {
-                opening,
-                received,
-                issued,
-                adjusted,
-                current,
-                price,
-                value,
-                status
-            };
+        function getItemCalculatedStock(itemId) {
+            return getInventoryStockSummary().get(itemId) || { opening: 0, received: 0, issued: 0, adjusted: 0, current: 0, price: 0, value: 0, status: 'Normal' };
         }
 
         function addLog(user, module, ref, desc) {
@@ -2535,7 +2532,7 @@
                 let itemCount = v.items ? v.items.length : 1;
                 let totalQty = v.items ? v.items.reduce((s, i) => s + Number(i.qty), 0) : Math.abs(v.diff || 0);
 
-                tbody.innerHTML += `
+                tbody.insertAdjacentHTML('beforeend', `
                     <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
                         <td class="p-2.5 font-mono">${displayVoucherDate(v.date)}</td>
                         <td class="p-2.5 font-bold text-brand-600">${v.no}</td>
@@ -2548,7 +2545,7 @@
                             <button onclick="viewVoucherDetail('${v.type}', '${v.id}')" class="text-brand-600 hover:text-brand-800"><i class="fa-solid fa-eye"></i></button>
                         </td>
                     </tr>
-                `;
+                `);
             });
         }
 
@@ -2574,12 +2571,12 @@
                 return;
             }
 
-            filtered.forEach(item => {
+            tbody.innerHTML = filtered.map(item => {
                 let calc = getItemCalculatedStock(item.id);
                 let statusBadge = calc.status === 'Normal' ? 'bg-emerald-100 text-emerald-800' :
                                   calc.status === 'Low Stock' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800';
 
-                tbody.innerHTML += `
+                return `
                     <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
                         <td class="p-3 font-mono font-bold text-slate-600 dark:text-slate-400">${item.code}</td>
                         <td class="p-3 font-semibold text-slate-800 dark:text-slate-100">${item.name}</td>
@@ -2598,7 +2595,7 @@
                         </td>
                     </tr>
                 `;
-            });
+            }).join('');
         }
 
         function renderStockLedger() {
@@ -2716,7 +2713,7 @@
             }
 
             filtered.forEach(e => {
-                tbody.innerHTML += `
+                tbody.insertAdjacentHTML('beforeend', `
                     <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
                         <td class="p-3 font-mono">${displayVoucherDate(e.date)}</td>
                         <td class="p-3 font-bold text-brand-600">${e.voucherNo}</td>
@@ -2729,7 +2726,7 @@
                         <td class="p-3 text-right font-mono text-purple-600">${e.qtyAdj !== 0 ? (e.qtyAdj>0?'+'+e.qtyAdj:e.qtyAdj) : '-'}</td>
                         <td class="p-3 text-right font-mono font-bold text-slate-900 dark:text-white">${e.closeBalance}</td>
                     </tr>
-                `;
+                `);
             });
         }
 
@@ -2761,7 +2758,7 @@
                 let statusBadge = v.status === 'Posted' ? 'bg-emerald-100 text-emerald-800' :
                                   v.status === 'Draft' ? 'bg-slate-100 text-slate-800' : 'bg-rose-100 text-rose-800';
 
-                tbody.innerHTML += `
+                tbody.insertAdjacentHTML('beforeend', `
                     <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
                         <td class="p-3 font-mono font-bold text-brand-600">${v.no}</td>
                         <td class="p-3 font-mono">${displayVoucherDate(v.date)}</td>
@@ -2777,7 +2774,7 @@
                             ${v.status === 'Posted' ? `<button onclick="reverseVoucher('GRN', '${v.id}')" class="text-rose-600 hover:text-rose-800" title="Reverse Stock"><i class="fa-solid fa-rotate-left"></i></button>` : ''}
                         </td>
                     </tr>
-                `;
+                `);
             });
         }
 
@@ -2919,7 +2916,7 @@
             sortedVouchers('ISSUE').forEach(v => {
                 let statusBadge = v.status === 'Posted' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800';
 
-                tbody.innerHTML += `
+                tbody.insertAdjacentHTML('beforeend', `
                     <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
                         <td class="p-3 font-mono font-bold text-amber-600">${v.no}</td>
                         <td class="p-3 font-mono">${displayVoucherDate(v.date)}</td>
@@ -2935,7 +2932,7 @@
                             ${v.status === 'Posted' ? `<button onclick="reverseVoucher('ISSUE', '${v.id}')" class="text-rose-600 hover:text-rose-800" title="Reverse Stock"><i class="fa-solid fa-rotate-left"></i></button>` : ''}
                         </td>
                     </tr>
-                `;
+                `);
             });
         }
 
@@ -3113,7 +3110,7 @@
             sortedVouchers('ADJ').forEach(v => {
                 let typeBadge = v.type === 'Increase' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800';
 
-                tbody.innerHTML += `
+                tbody.insertAdjacentHTML('beforeend', `
                     <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
                         <td class="p-3 font-mono font-bold text-purple-600">${v.no}</td>
                         <td class="p-3 font-mono">${displayVoucherDate(v.date)}</td>
@@ -3129,7 +3126,7 @@
                             ${v.status === 'Posted' ? `<button onclick="reverseVoucher('ADJ', '${v.id}')" class="text-rose-600 hover:text-rose-800" title="Reverse Stock"><i class="fa-solid fa-rotate-left"></i></button>` : ''}
                         </td>
                     </tr>
-                `;
+                `);
             });
         }
 
@@ -3268,7 +3265,7 @@
             let balance = Number(item.openingQty) || 0;
             history.forEach(h => {
                 balance += h.in - h.out + h.adj;
-                tbody.innerHTML += `
+                tbody.insertAdjacentHTML('beforeend', `
                     <tr>
                         <td class="p-2 font-mono">${displayVoucherDate(h.date)}</td>
                         <td class="p-2 font-bold text-brand-600">${h.no}</td>
@@ -3279,7 +3276,7 @@
                         <td class="p-2 text-right font-mono text-purple-600">${h.adj !== 0 ? h.adj : '-'}</td>
                         <td class="p-2 text-right font-mono font-bold">${balance}</td>
                     </tr>
-                `;
+                `);
             });
 
             openModal('modal-item-profile');
@@ -3295,9 +3292,9 @@
             let query = (document.getElementById('items-search').value || '').toLowerCase();
             let filtered = dbItems.filter(i => i.name.toLowerCase().includes(query) || i.code.toLowerCase().includes(query));
 
-            filtered.forEach(i => {
+            tbody.innerHTML = filtered.map(i => {
                 let calc = getItemCalculatedStock(i.id);
-                tbody.innerHTML += `
+                return `
                     <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
                         <td class="p-3 font-mono font-bold text-slate-600 dark:text-slate-400">${i.code}</td>
                         <td class="p-3 font-semibold text-slate-800 dark:text-slate-100">${i.name}</td>
@@ -3315,7 +3312,7 @@
                         </td>
                     </tr>
                 `;
-            });
+            }).join('');
         }
 
         function openItemModal(id = null) {
@@ -3738,7 +3735,7 @@
                 matchingItems.forEach(i => {
                     let calc = getItemCalculatedStock(i.id);
                     grandVal += calc.value;
-                    body.innerHTML += `
+                    body.insertAdjacentHTML('beforeend', `
                         <tr>
                             <td class="p-2 font-mono">${i.code}</td>
                             <td class="p-2 font-bold">${i.name}</td>
@@ -3752,7 +3749,7 @@
                             <td class="p-2 text-right font-mono">${currency}${calc.price.toFixed(2)}</td>
                             <td class="p-2 text-right font-mono font-bold">${currency}${calc.value.toFixed(2)}</td>
                         </tr>
-                    `;
+                    `);
                 });
 
                 foot.innerHTML = `
@@ -3777,7 +3774,7 @@
                 matchingItems.forEach(i => {
                     let calc = getItemCalculatedStock(i.id);
                     if (calc.status !== 'Normal') {
-                        body.innerHTML += `
+                        body.insertAdjacentHTML('beforeend', `
                             <tr>
                                 <td class="p-2 font-mono">${i.code}</td>
                                 <td class="p-2 font-bold">${i.name}</td>
@@ -3788,7 +3785,7 @@
                                 <td class="p-2">${i.vendor || 'N/A'}</td>
                                 <td class="p-2 text-center font-bold text-rose-600">${calc.status}</td>
                             </tr>
-                        `;
+                        `);
                     }
                 });
             } else if (currentReportType === 'period') {
@@ -3903,9 +3900,7 @@
 
         function renderActivityLog() {
             let tbody = document.getElementById('activity-log-table');
-            tbody.innerHTML = '';
-            dbWorkingLog.forEach(l => {
-                tbody.innerHTML += `
+            tbody.innerHTML = dbWorkingLog.map(l => `
                     <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
                         <td class="p-3 font-mono">${l.timestamp}</td>
                         <td class="p-3 font-bold text-slate-700 dark:text-slate-300">${l.user}</td>
@@ -3914,8 +3909,7 @@
                         <td class="p-3 text-slate-500">${l.desc}</td>
                         <td class="p-3 text-slate-400 text-xs">Logged</td>
                     </tr>
-                `;
-            });
+                `).join('');
         }
 
         function updateNotifications() {
@@ -3927,7 +3921,7 @@
                 let calc = getItemCalculatedStock(i.id);
                 if (calc.status === 'Out of Stock') {
                     count++;
-                    notifList.innerHTML += `
+                    notifList.insertAdjacentHTML('beforeend', `
                         <div class="p-2.5 hover:bg-rose-50 dark:hover:bg-slate-700 flex items-center space-x-2 text-rose-700">
                             <i class="fa-solid fa-circle-xmark text-rose-500"></i>
                             <div>
@@ -3935,10 +3929,10 @@
                                 <div class="text-[10px] text-slate-400">Current Qty: 0 ${i.uom}</div>
                             </div>
                         </div>
-                    `;
+                    `);
                 } else if (calc.status === 'Low Stock') {
                     count++;
-                    notifList.innerHTML += `
+                    notifList.insertAdjacentHTML('beforeend', `
                         <div class="p-2.5 hover:bg-amber-50 dark:hover:bg-slate-700 flex items-center space-x-2 text-amber-700">
                             <i class="fa-solid fa-triangle-exclamation text-amber-500"></i>
                             <div>
@@ -3946,7 +3940,7 @@
                                 <div class="text-[10px] text-slate-400">Stock: ${calc.current} (Reorder: ${i.reorderLevel})</div>
                             </div>
                         </div>
-                    `;
+                    `);
                 }
             });
 
@@ -4040,6 +4034,8 @@
         },true);
 
         // INIT APP EVENT LISTENERS & SHORTCUTS
+        window.addEventListener('online',()=>{if(supabaseRetryTimer){clearTimeout(supabaseRetryTimer);supabaseRetryTimer=null;}supabaseRetryAttempt=0;if(supabaseLocalDirty)syncSharedInventory(true);});
+        document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&navigator.onLine!==false&&supabaseLocalDirty)syncSharedInventory(true);});
         window.addEventListener('DOMContentLoaded', () => {
             setSupabaseAccess(false);
             if(isLocalCompanyPreview){
