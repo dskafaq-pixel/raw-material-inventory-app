@@ -898,10 +898,9 @@
                         <select id="report-filter-category" class="p-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg"><option value="">All Categories</option></select>
                         <select id="report-filter-vendor" class="p-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg"><option value="">All Vendors</option></select>
                         <select id="report-filter-movement" aria-label="Stock movement type" class="p-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg">
-                            <option value="both" selected>All (Received + Issued + Adjustments)</option>
+                            <option value="both" selected>All (Received + Issued)</option>
                             <option value="GRN">Received only (GRN)</option>
                             <option value="Issue">Issued only (Issue)</option>
-                            <option value="Adjustment">Adjustments only</option>
                         </select>
                         <button onclick="generateReport(true)" class="p-2 bg-brand-600 text-white rounded-lg font-semibold">Generate Report</button>
                         <button onclick="resetReportFilters()" class="p-2 bg-slate-200 dark:bg-slate-700 rounded-lg font-semibold">Reset Filters</button>
@@ -1993,14 +1992,25 @@
             conflicts.push(path);return local;
         }
         async function fetchSharedInventory(){const {data,error}=await supabaseClient.from('inventory_state').select('workspace_id,version,updated_at,payload,client_id').eq('workspace_id',companyConfig.supabaseWorkspaceId).maybeSingle();if(error)throw error;return data;}
+        async function fetchInventoryTableRows(table,columns,workspaceId,orderColumns){
+            const pageSize=500;let offset=0,rows=[];
+            while(true){
+                let query=supabaseClient.from(table).select(columns).eq('workspace_id',workspaceId);
+                (orderColumns||[]).forEach(column=>{query=query.order(column,{ascending:true});});
+                const{data,error}=await query.range(offset,offset+pageSize-1);if(error)throw error;
+                const page=data||[];rows.push(...page);if(page.length<pageSize)break;offset+=pageSize;
+            }
+            return rows;
+        }
         async function fetchNormalizedInventoryTables(workspaceId,expectedVersion){
             const tables={dbItems:'inventory_items',dbCategories:'inventory_categories',dbUoms:'inventory_uoms',dbVendors:'inventory_vendors',dbVouchersGrn:'inventory_grn_vouchers',dbVouchersIssue:'inventory_issue_vouchers',dbVouchersAdj:'inventory_adjustment_vouchers',dbWorkingLog:'inventory_audit_log',dbTrashBin:'inventory_trash_bin'};
-            const requests=Object.entries(tables).map(async([key,table])=>{const columns=['dbWorkingLog','dbTrashBin'].includes(key)?'row_index,record_data':'row_index,record_id,record_data';const{data,error}=await supabaseClient.from(table).select(columns).eq('workspace_id',workspaceId).order('row_index',{ascending:true});if(error)throw error;return[key,data||[]];});
+            const readSyncVersion=async()=>{const{data,error}=await supabaseClient.from('inventory_record_sync_state').select('version').eq('workspace_id',workspaceId).maybeSingle();if(error)throw error;return Number(data?.version)||0;};
+            const versionBefore=await readSyncVersion();if(versionBefore!==Number(expectedVersion))throw Error('The workspace record tables changed while loading. Please retry sign-in; no data was replaced.');
+            const requests=Object.entries(tables).map(async([key,table])=>{const columns=['dbWorkingLog','dbTrashBin'].includes(key)?'row_index,record_data':'row_index,record_id,record_data';return[key,await fetchInventoryTableRows(table,columns,workspaceId,['row_index'])];});
             requests.push((async()=>{const{data,error}=await supabaseClient.from('inventory_company_settings').select('settings').eq('workspace_id',workspaceId).maybeSingle();if(error)throw error;return['companyConfig',data?.settings||{}];})());
-            requests.push((async()=>{const{data,error}=await supabaseClient.from('inventory_voucher_lines').select('voucher_type,voucher_id,line_index,line_data').eq('workspace_id',workspaceId).order('voucher_id',{ascending:true}).order('line_index',{ascending:true});if(error)throw error;return['voucherLines',data||[]];})());
-            requests.push((async()=>{const{data,error}=await supabaseClient.from('inventory_record_sync_state').select('version').eq('workspace_id',workspaceId).maybeSingle();if(error)throw error;return['syncState',data];})());
-            const entries=await Promise.all(requests),result=Object.fromEntries(entries);
-            if(!result.syncState||Number(result.syncState.version)!==Number(expectedVersion))throw Error('The workspace record tables are not synchronized with the inventory version yet. No data was replaced.');
+            requests.push((async()=>['voucherLines',await fetchInventoryTableRows('inventory_voucher_lines','voucher_type,voucher_id,line_index,line_data',workspaceId,['voucher_id','line_index'])])());
+            const entries=await Promise.all(requests),result=Object.fromEntries(entries),versionAfter=await readSyncVersion();
+            if(versionAfter!==Number(expectedVersion))throw Error('The workspace record tables changed while loading. Please retry sign-in; no data was replaced.');
             const payload={companyConfig:result.companyConfig,backupVersion:2};
             for(const key of Object.keys(tables))payload[key]=result[key].map(row=>row.record_data);
             const linesByVoucher={GRN:new Map(),ISSUE:new Map()};
@@ -3791,9 +3801,9 @@
                 });
             } else if (currentReportType === 'period') {
                 document.getElementById('report-header-title').innerText = 'PERIOD-WISE STOCK MOVEMENT REPORT';
-                head.innerHTML = '<th class="p-2">Date</th><th class="p-2">Voucher</th><th class="p-2">Type</th><th class="p-2">Item</th><th class="p-2">Party / Person</th><th class="p-2 text-right">Qty In</th><th class="p-2 text-right">Qty Out</th><th class="p-2 text-right">Adjustment</th><th class="p-2 text-right">Balance</th><th class="p-2">Status</th>';
-                const rows = getLedgerEntries().filter(e => (!from || e.date.slice(0,10) >= from) && (!to || e.date.slice(0,10) <= to) && (!category || (dbItems.find(i => i.id === e.itemId) || {}).category === category) && (!vendor || e.ref === vendor) && (movement === 'both' ? ['GRN','Issue','Adjustment Increase','Adjustment Decrease'].includes(e.type) : movement === 'Adjustment' ? e.type.startsWith('Adjustment ') : e.type === movement));
-                rows.forEach(e => body.insertAdjacentHTML('beforeend', `<tr><td class="p-2">${displayVoucherDate(e.date)}</td><td class="p-2">${e.voucherNo}</td><td class="p-2">${e.type}</td><td class="p-2">${e.itemName}</td><td class="p-2">${e.ref || ''}</td><td class="p-2 text-right">${e.qtyIn || 0}</td><td class="p-2 text-right">${e.qtyOut || 0}</td><td class="p-2 text-right font-mono ${e.qtyAdj > 0 ? 'text-emerald-600' : e.qtyAdj < 0 ? 'text-rose-600' : ''}">${e.qtyAdj || 0}</td><td class="p-2 text-right font-semibold">${e.closeBalance ?? 0}</td><td class="p-2">Posted</td></tr>`));
+                head.innerHTML = '<th class="p-2">Date</th><th class="p-2">Voucher</th><th class="p-2">Type</th><th class="p-2">Item</th><th class="p-2">Party / Person</th><th class="p-2 text-right">Qty In</th><th class="p-2 text-right">Qty Out</th><th class="p-2 text-right">Balance</th><th class="p-2">Status</th>';
+                const rows = getLedgerEntries().filter(e => (!from || e.date.slice(0,10) >= from) && (!to || e.date.slice(0,10) <= to) && (!category || (dbItems.find(i => i.id === e.itemId) || {}).category === category) && (!vendor || e.ref === vendor) && (movement === 'both' ? ['GRN','Issue'].includes(e.type) : e.type === movement));
+                rows.forEach(e => body.insertAdjacentHTML('beforeend', `<tr><td class="p-2">${displayVoucherDate(e.date)}</td><td class="p-2">${e.voucherNo}</td><td class="p-2">${e.type}</td><td class="p-2">${e.itemName}</td><td class="p-2">${e.ref || ''}</td><td class="p-2 text-right">${e.qtyIn || 0}</td><td class="p-2 text-right">${e.qtyOut || 0}</td><td class="p-2 text-right font-semibold">${e.closeBalance ?? 0}</td><td class="p-2">Posted</td></tr>`));
             } else if (currentReportType === 'category') {
                 document.getElementById('report-header-title').innerText = 'CATEGORY-WISE STOCK REPORT';
                 head.innerHTML = '<th class="p-2">Category</th><th class="p-2">Item Count</th><th class="p-2 text-right">Current Qty</th><th class="p-2 text-right">Inventory Value</th>';
